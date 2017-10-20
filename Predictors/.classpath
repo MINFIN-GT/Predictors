@@ -7,5 +7,7 @@
 	<classpathentry kind="lib" path="libs/REngine.jar"/>
 	<classpathentry kind="lib" path="libs/commons-cli-1.4.jar"/>
 	<classpathentry kind="lib" path="libs/joda-time-2.9.9.jar"/>
+	<classpathentry kind="lib" path="libs/hadoop-common-2.8.0.jar"/>
+	<classpathentry kind="lib" path="libs/hive-jdbc-2.1.0-standalone.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

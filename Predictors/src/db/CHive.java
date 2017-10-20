@@ -24,7 +24,7 @@ public class CHive {
 	    return false;
 	}
 	
-	public static  boolean connectdes(){
+	/*public static  boolean connectdes(){
 		try {
 	        Class.forName(driverName);
 	        connection = DriverManager.getConnection(String.join("", "jdbc:hive2://",CProperties.getHive_host(),":",CProperties.getHive_port(),"/",CProperties.getHive_databasedes()), CProperties.getHive_user(), CProperties.getHive_password());
@@ -33,7 +33,7 @@ public class CHive {
 			CLogger.writeFullConsole("Error 2: CHive.class", e);
 	    }
 	    return false;
-	}
+	}*/
 	
 	public static Connection openConnection(){
 		try {
@@ -46,7 +46,7 @@ public class CHive {
 	    return null;
 	}
 	
-	public static Connection openConnectiondes(){
+	/*public static Connection openConnectiondes(){
 		try {
 	        Class.forName(driverName);
 	        connection = DriverManager.getConnection(String.join("", "jdbc:hive2://",CProperties.getHive_host(),":",CProperties.getHive_port(),"/",CProperties.getHive_databasedes()), CProperties.getHive_user(), CProperties.getHive_password());
@@ -55,7 +55,7 @@ public class CHive {
 			CLogger.writeFullConsole("Error 3: CHive.class", e);
 	    }
 	    return null;
-	}
+	}*/
 	
 	public static Connection getConnection(){
 		return connection;
