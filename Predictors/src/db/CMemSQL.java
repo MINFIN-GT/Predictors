@@ -18,7 +18,6 @@ public class CMemSQL {
 	private static String user;
 	private static String password;
 	private static String schema;
-	private static String schemades;
 	
 	private static Statement st;
 	
@@ -28,7 +27,6 @@ public class CMemSQL {
 		user = CProperties.getmemsql_user();
 		password = CProperties.getmemsql_password();
 		schema = CProperties.getmemsql_schema();
-		schemades = CProperties.getmemsql_schemades();
 	}
 	
 	public static boolean connect(){
@@ -41,20 +39,6 @@ public class CMemSQL {
 		}
 		catch(Exception e){
 			CLogger.writeFullConsole("Error 1 : CMemSQL.class ", e);
-		}
-		return false;
-	}
-	
-	public static boolean connectdes(){
-		try{
-			Class.forName("com.mysql.jdbc.Driver").newInstance();
-			connection=DriverManager.getConnection("jdbc:mysql://"+host+":"+port+"/"+schemades+"?" +
-                    "user="+user+"&password="+password);
-			if(!connection.isClosed())
-				return true;
-		}
-		catch(Exception e){
-			CLogger.writeFullConsole("Error 2 : CMemSQL.class ", e);
 		}
 		return false;
 	}

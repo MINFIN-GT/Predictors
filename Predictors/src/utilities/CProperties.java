@@ -20,6 +20,9 @@ public class CProperties {
 	private static String hive_database="";	
 	private static String hive_databasedes="";	
 	
+	private static String rserve="";
+	private static Integer rserve_port=null;
+	
 	
 	static{
 		InputStream input;
@@ -41,6 +44,10 @@ public class CProperties {
 				hive_port = properties.getProperty("hive_port");
 				hive_user = properties.getProperty("hive_user");
 				hive_password = properties.getProperty("hive_password");
+				
+				rserve = properties.getProperty("rserve");
+				rserve_port = properties.getProperty("rserve_port")!=null ? Integer.parseInt(properties.getProperty("rserve_port")) : null; 
+				
 				setHive_database(properties.getProperty("hive_database"));
 				setHive_databasedes(properties.getProperty("hive_databasedes"));
 			}
@@ -155,5 +162,21 @@ public class CProperties {
 
 	public static void setHive_databasedes(String hive_databasedes) {
 		CProperties.hive_databasedes = hive_databasedes;
+	}
+	
+	public static String getRserve(){
+		return rserve;
+	}
+	
+	public static void setRserve(String rserve){
+		CProperties.rserve = rserve;
+	}
+	
+	public static Integer getRservePort(){
+		return rserve_port;
+	}
+	
+	public static void setRservePort(Integer rserve_port){
+		CProperties.rserve_port = rserve_port;
 	}
 }
