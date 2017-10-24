@@ -28,7 +28,7 @@ public class CProperties {
 		InputStream input;
 		properties = new Properties();
 		try{
-			File configfile = new File("data_loader.properties");
+			File configfile = new File("predictors_loader.properties");
 			if(configfile.exists()){
 				input = new FileInputStream(configfile);
 				
