@@ -3,6 +3,7 @@ package main;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 
 import org.joda.time.DateTime;
@@ -70,6 +71,7 @@ public class CIngreso {
 	
 	public static ArrayList<IngresoRecursoAuxiliar> getIngresosRecursosTotales(Connection conn, Integer ejercicio, Integer mes){
 		ArrayList<IngresoRecursoAuxiliar> ret = new ArrayList<IngresoRecursoAuxiliar>();
+		DateTime now = DateTime.now();
 		try{
 			PreparedStatement ps = conn.prepareStatement("SELECT ejercicio, "
 					+ "sum(m1) m1, "
@@ -92,7 +94,7 @@ public class CIngreso {
 			while(rs.next()){
 				ArrayList<Double> montos=new ArrayList<Double>();
 				for(int i=1; i<=12; i++){
-					if((rs.getInt(1)==ejercicio && i<=mes)||rs.getInt(1)<ejercicio)
+					if(((rs.getInt(1)==ejercicio && i<mes) || rs.getInt(1)<ejercicio) && ((rs.getInt(1)==now.getYear() && i<now.getMonthOfYear()) || rs.getInt(1)<now.getYear()))
 						montos.add(rs.getDouble(1+i));
 				}
 				IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(1), 0, null, 0, null, montos);
@@ -125,24 +127,34 @@ public class CIngreso {
 			//Rengine.DEBUG = 5;
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			
-			engine.eval("library(forecast)");
+			engine.eval("suppressPackageStartupMessages(library(forecast))");
 			String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
 			engine.eval("datos = " + vector_aplanado);
 			engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
 			if(ajustado){
 				engine.eval("ajuste = ar(BoxCox(serie,lambda=1))");
-				engine.eval("fc = forecast(ajuste,h="+numero_pronosticos+", lambda=1)");
+				engine.eval("fc = forecast(ets(ajuste),h="+numero_pronosticos+", lambda=1)");
 			}
 			else{
-				engine.eval("fc = forecast(serie,"+numero_pronosticos+")");
+				engine.eval("fc = forecast(ets(serie),"+numero_pronosticos+")");
 			}	
 			engine.eval("resultados=as.numeric(fc$mean)");
-			double[] res=engine.eval("resultados").asDoubles();
+			double[] res_ets=engine.eval("resultados").asDoubles();
+			engine.eval("error=accuracy(fc)[5]");
+			double error_ets = engine.eval("error").asDouble();
+			
+			engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
+			engine.eval("fc = forecast(auto.arima(serie),"+numero_pronosticos+")");
+			engine.eval("resultados=as.numeric(fc$mean)");
+			double[] res_arima=engine.eval("resultados").asDoubles();
+			engine.eval("error=accuracy(fc)[5]");
+			double error_arima = engine.eval("error").asDouble();
 			
 			DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
+			
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0");
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0 and ajustado=?");
 			ps.setInt(1, ejercicio);
 			ps.setInt(2, mes);
 			ps.setInt(3, ejercicio);
@@ -151,12 +163,13 @@ public class CIngreso {
 			ps.setInt(6, fin.getMonthOfYear());
 			ps.setInt(7, recurso);
 			ps.setInt(8, auxiliar);
+			ps.setInt(9, ajustado ? 1 : 0);
 			ps.executeUpdate();
 			ps.close();
-			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto) "
-					+ "values(?,?,?,?,0,?)");
-			
-			for(double dato: res){
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
+					+ "values(?,?,?,?,0,?,?,?,?,?)");
+			double error = 0;
+			for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 				ret.add(dato);
 				DateTime tiempo = inicio.plusMonths(ret.size());
 				ps.setInt(1, tiempo.getYear());
@@ -164,6 +177,14 @@ public class CIngreso {
 				ps.setInt(3, recurso);
 				ps.setInt(4, auxiliar);
 				ps.setDouble(5, dato);
+				ps.setString(6, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+				error = error_ets<=error_arima ? error_ets : error_arima;
+				if(!Double.isNaN(error) && !Double.isInfinite(error))
+					ps.setDouble(7,  error);
+				else
+					ps.setNull(7, java.sql.Types.DECIMAL);
+				ps.setInt(8, ajustado ? 1 : 0);
+				ps.setTimestamp(9, new Timestamp(DateTime.now().getMillis()));
 				ps.addBatch();
 			}
 			ps.executeBatch();
@@ -190,7 +211,7 @@ public class CIngreso {
 					//Rengine.DEBUG = 5;
 					RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 					
-					engine.eval("library(forecast)");
+					engine.eval("suppressPackageStartupMessages(library(forecast))");
 					String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
 					engine.eval("datos = " + vector_aplanado);
 					engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
@@ -199,15 +220,24 @@ public class CIngreso {
 						engine.eval("fc = forecast(ajuste,h="+numero_pronosticos+", lambda=1)");
 					}
 					else{
-						engine.eval("fc = forecast(serie,"+numero_pronosticos+")");
+						engine.eval("fc = forecast(ets(serie),"+numero_pronosticos+")");
 					}	
 					engine.eval("resultados=as.numeric(fc$mean)");
-					double[] res=engine.eval("resultados").asDoubles();
+					double[] res_ets=engine.eval("resultados").asDoubles();
+					engine.eval("error=accuracy(fc)[5]");
+					double error_ets = engine.eval("error").asDouble();
+					
+					engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
+					engine.eval("fc = forecast(auto.arima(serie),"+numero_pronosticos+")");
+					engine.eval("resultados=as.numeric(fc$mean)");
+					double[] res_arima=engine.eval("resultados").asDoubles();
+					engine.eval("error=accuracy(fc)[5]");
+					double error_arima = engine.eval("error").asDouble();
 					
 					DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
 					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0");
+							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0 and ajustado=?");
 					ps.setInt(1, ejercicio);
 					ps.setInt(2, mes);
 					ps.setInt(3, ejercicio);
@@ -216,12 +246,14 @@ public class CIngreso {
 					ps.setInt(6, fin.getMonthOfYear());
 					ps.setInt(7, rs_catalogo.getInt("recurso"));
 					ps.setInt(8, rs_catalogo.getInt("recurso_auxiliar"));
+					ps.setInt(9, ajustado ? 1 : 0);
 					ps.executeUpdate();
 					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto) "
-							+ "values(?,?,?,?,0,?)");
+					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
+							+ "values(?,?,?,?,0,?,?,?,?,?)");
 					int month=1;
-					for(double dato: res){
+					double error=0;
+					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 						ret.add(dato);
 						DateTime tiempo = inicio.plusMonths(month);
 						ps.setInt(1, tiempo.getYear());
@@ -229,6 +261,14 @@ public class CIngreso {
 						ps.setInt(3, rs_catalogo.getInt("recurso"));
 						ps.setInt(4, rs_catalogo.getInt("recurso_auxiliar"));
 						ps.setDouble(5, dato);
+						ps.setString(6, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+						error = error_ets<=error_arima ? error_ets : error_arima;
+						if(!Double.isNaN(error) && !Double.isInfinite(error))
+							ps.setDouble(7,  error);
+						else
+							ps.setNull(7, java.sql.Types.DECIMAL);
+						ps.setInt(8, ajustado ? 1 : 0);
+						ps.setTimestamp(9, new Timestamp(DateTime.now().getMillis()));
 						ps.addBatch();
 						month++;
 					}
@@ -241,7 +281,8 @@ public class CIngreso {
 			ps_catalogo.close();
 		}
 		catch(Exception e){
-			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recurso - auxiliar ["+e.getMessage()+"]");
+			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recurso - auxiliar");
+			e.printStackTrace(System.out);
 		}
 		return ret;
 	}
@@ -255,7 +296,7 @@ public class CIngreso {
 			//Rengine.DEBUG = 5;
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			
-			engine.eval("library(forecast)");
+			engine.eval("suppressPackageStartupMessages(library(forecast))");
 			String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
 			engine.eval("datos = " + vector_aplanado);
 			engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
@@ -264,15 +305,24 @@ public class CIngreso {
 				engine.eval("fc = forecast(ajuste,h="+numero_pronosticos+", lambda=1)");
 			}
 			else{
-				engine.eval("fc = forecast(serie,"+numero_pronosticos+")");
+				engine.eval("fc = forecast(ets(serie),"+numero_pronosticos+")");
 			}	
 			engine.eval("resultados=as.numeric(fc$mean)");
-			double[] res=engine.eval("resultados").asDoubles();
+			double[] res_ets=engine.eval("resultados").asDoubles();
+			engine.eval("error=accuracy(fc)[5]");
+			double error_ets = engine.eval("error").asDouble();
+			
+			engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
+			engine.eval("fc = forecast(auto.arima(serie),"+numero_pronosticos+")");
+			engine.eval("resultados=as.numeric(fc$mean)");
+			double[] res_arima=engine.eval("resultados").asDoubles();
+			engine.eval("error=accuracy(fc)[5]");
+			double error_arima = engine.eval("error").asDouble();
 			
 			DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0");
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=?");
 			ps.setInt(1, ejercicio);
 			ps.setInt(2, mes);
 			ps.setInt(3, ejercicio);
@@ -280,25 +330,35 @@ public class CIngreso {
 			ps.setInt(5, fin.getYear());
 			ps.setInt(6, fin.getMonthOfYear());
 			ps.setInt(7, recurso);
+			ps.setInt(8, ajustado ? 1 : 0);
 			ps.executeUpdate();
 			ps.close();
-			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto) "
-					+ "values(?,?,?,0,0,?)");
-			
-			for(double dato: res){
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
+					+ "values(?,?,?,0,0,?,?,?,?,?)");
+			double error = 0;
+			for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 				ret.add(dato);
 				DateTime tiempo = inicio.plusMonths(ret.size());
 				ps.setInt(1, tiempo.getYear());
 				ps.setInt(2, tiempo.getMonthOfYear());
 				ps.setInt(3, recurso);
 				ps.setDouble(4, dato);
+				ps.setString(6, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+				error = error_ets<=error_arima ? error_ets : error_arima;
+				if(!Double.isNaN(error) && !Double.isInfinite(error))
+					ps.setDouble(7,  error);
+				else
+					ps.setNull(7, java.sql.Types.DECIMAL);
+				ps.setInt(8, ajustado ? 1 : 0);
+				ps.setTimestamp(9, new Timestamp(DateTime.now().getMillis()));
 				ps.addBatch();
 			}
 			ps.executeBatch();
 			ps.close();
 		}
 		catch(Exception e){
-			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recurso. ["+e.getMessage()+"]");
+			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recurso.");
+			e.printStackTrace(System.out);
 		}
 		return ret;
 	}
@@ -317,7 +377,7 @@ public class CIngreso {
 					int ts_año_inicio = historicos.get(0).getEjercicio();
 					//Rengine.DEBUG = 5;
 					RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
-					engine.eval("library(forecast)");
+					engine.eval("suppressPackageStartupMessages(library(forecast))");
 					String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
 					engine.eval("datos = " + vector_aplanado);
 					engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
@@ -326,15 +386,24 @@ public class CIngreso {
 						engine.eval("fc = forecast(ajuste,h="+numero_pronosticos+", lambda=1)");
 					}
 					else{
-						engine.eval("fc = forecast(serie,"+numero_pronosticos+")");
+						engine.eval("fc = forecast(ets(serie),"+numero_pronosticos+")");
 					}	
 					engine.eval("resultados=as.numeric(fc$mean)");
-					double[] res=engine.eval("resultados").asDoubles();
+					double[] res_ets=engine.eval("resultados").asDoubles();
+					engine.eval("error=accuracy(fc)[5]");
+					double error_ets = engine.eval("error").asDouble();
+					
+					engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
+					engine.eval("fc = forecast(auto.arima(serie),"+numero_pronosticos+")");
+					engine.eval("resultados=as.numeric(fc$mean)");
+					double[] res_arima=engine.eval("resultados").asDoubles();
+					engine.eval("error=accuracy(fc)[5]");
+					double error_arima = engine.eval("error").asDouble();
 					
 					DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
 					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0");
+							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=?");
 					ps.setInt(1, ejercicio);
 					ps.setInt(2, mes);
 					ps.setInt(3, ejercicio);
@@ -342,19 +411,29 @@ public class CIngreso {
 					ps.setInt(5, fin.getYear());
 					ps.setInt(6, fin.getMonthOfYear());
 					ps.setInt(7, rs_catalogo.getInt("recurso"));
+					ps.setInt(8, ajustado ? 1 : 0);
 					ps.executeUpdate();
 					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto) "
-							+ "values(?,?,?,0,0,?)");
+					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
+							+ "values(?,?,?,0,0,?,?,?,?,?)");
 					
 					int ndato=1;
-					for(double dato: res){
+					double error = 0;
+					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 						ret.add(dato);
 						DateTime tiempo = inicio.plusMonths(ndato);
 						ps.setInt(1, tiempo.getYear());
 						ps.setInt(2, tiempo.getMonthOfYear());
 						ps.setInt(3, rs_catalogo.getInt("recurso"));
 						ps.setDouble(4, dato);
+						ps.setString(5, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+						error = error_ets<=error_arima ? error_ets : error_arima;
+						if(!Double.isNaN(error) && !Double.isInfinite(error))
+							ps.setDouble(6,  error);
+						else
+							ps.setNull(6, java.sql.Types.DECIMAL);
+						ps.setInt(7, ajustado ? 1 : 0);
+						ps.setTimestamp(8, new Timestamp(DateTime.now().getMillis()));
 						ps.addBatch();
 						ndato++;
 					}
@@ -367,7 +446,8 @@ public class CIngreso {
 			ps_catalogo.close();
 		}
 		catch(Exception e){
-			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recurso. ["+e.getMessage()+"]");
+			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recurso.");
+			e.printStackTrace(System.out);
 		}
 		return ret;
 	}
@@ -375,53 +455,73 @@ public class CIngreso {
 	public static ArrayList<Double> getPronosticosRecursosTotales(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
+ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
 			historicos = getIngresosRecursosTotales(conn, ejercicio, mes);
+			int ts_año_inicio = historicos.get(0).getEjercicio();
+			
 			//Rengine.DEBUG = 5;
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
-			
-			
-			engine.eval("library(forecast)");
+			engine.eval("suppressPackageStartupMessages(library(forecast))");
 			String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
 			engine.eval("datos = " + vector_aplanado);
-			engine.eval("serie = ts(datos, start=c(2011,1), frequency=12)");
+			engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
 			if(ajustado){
 				engine.eval("ajuste = ar(BoxCox(serie,lambda=1))");
 				engine.eval("fc = forecast(ajuste,h="+numero_pronosticos+", lambda=1)");
 			}
 			else{
-				engine.eval("fc = forecast(serie,"+numero_pronosticos+")");
+				engine.eval("fc = forecast(ets(serie),"+numero_pronosticos+")");
 			}	
 			engine.eval("resultados=as.numeric(fc$mean)");
-			double[] res=engine.eval("resultados").asDoubles();
+			double[] res_ets=engine.eval("resultados").asDoubles();
+			engine.eval("error=accuracy(fc)[5]");
+			double error_ets = engine.eval("error").asDouble();
+			
+			engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
+			engine.eval("fc = forecast(auto.arima(serie),"+numero_pronosticos+")");
+			engine.eval("resultados=as.numeric(fc$mean)");
+			double[] res_arima=engine.eval("resultados").asDoubles();
+			engine.eval("error=accuracy(fc)[5]");
+			double error_arima = engine.eval("error").asDouble();
 			
 			DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-					+ "WHERE ((ejercicio=? and mes>?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=0 and auxiliar=0 and fuente=0");
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=0 and auxiliar=0 and fuente=0 AND ajustado=?");
 			ps.setInt(1, ejercicio);
 			ps.setInt(2, mes);
 			ps.setInt(3, ejercicio);
 			ps.setInt(4, fin.getYear());
 			ps.setInt(5, fin.getYear());
 			ps.setInt(6, fin.getMonthOfYear());
+			ps.setInt(7, ajustado ? 1 : 0);
 			ps.executeUpdate();
 			ps.close();
-			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto) "
-					+ "values(?,?,0,0,0,?)");
-			for(double dato: res){
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
+					+ "values(?,?,0,0,0,?,?,?,?,?)");
+			double error=0;
+			for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 				ret.add(dato);
 				DateTime tiempo = inicio.plusMonths(ret.size());
 				ps.setInt(1, tiempo.getYear());
 				ps.setInt(2, tiempo.getMonthOfYear());
 				ps.setDouble(3, dato);
+				ps.setString(4, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+				error = error_ets<=error_arima ? error_ets : error_arima;
+				if(!Double.isNaN(error) && !Double.isInfinite(error))
+					ps.setDouble(5,  error);
+				else
+					ps.setNull(5, java.sql.Types.DECIMAL);
+				ps.setInt(6, ajustado ? 1 : 0);
+				ps.setTimestamp(7, new Timestamp(DateTime.now().getMillis()));
 				ps.addBatch();
 			}
 			ps.executeBatch();
 			ps.close();
 		}
 		catch(Exception e){
-			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recursos totales. ["+e.getMessage()+"]");
+			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recursos totales");
+			e.printStackTrace(System.out);
 		}
 		return ret;
 	}
