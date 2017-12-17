@@ -85,13 +85,13 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			ArrayList<Integer> entidades = getEntidadesGobiernoCentro(conn, ejercicio);
+			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(Integer entidad:entidades){
 				ArrayList<EgresoGasto> historicos = new ArrayList<EgresoGasto>();
 				historicos = getEgresosEntidad(conn, ejercicio, mes, entidad);
 				int ts_año_inicio = historicos.get(0).getEjercicio();
 				
 				//Rengine.DEBUG = 5;
-				RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 				engine.eval("suppressPackageStartupMessages(library(forecast))");
 				String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
 				engine.eval("datos = " + vector_aplanado);
@@ -134,9 +134,10 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 						+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
 						+ "values(?,?,?,0,0,0,0,0,0,0,0,?,?,?,?,?)");
 				double error=0;
+				int i=1;
 				for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 					ret.add(dato);
-					DateTime tiempo = inicio.plusMonths(ret.size());
+					DateTime tiempo = inicio.plusMonths(i);
 					ps.setInt(1, tiempo.getYear());
 					ps.setInt(2, tiempo.getMonthOfYear());
 					ps.setInt(3, entidad);
@@ -150,10 +151,12 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					ps.setInt(7, ajustado ? 1 : 0);
 					ps.setTimestamp(8, new Timestamp(DateTime.now().getMillis()));
 					ps.addBatch();
+					i++;
 				}
 				ps.executeBatch();
 				ps.close();
 			}
+			engine.close();
 		}
 		catch(Exception e){
 			CLogger.writeConsole("Error al calcular los pronosticos de egresos totales");
@@ -286,6 +289,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 			ArrayList<ArrayList<EgresoGasto>> historicos = new ArrayList<ArrayList<EgresoGasto>>();
 			historicos = getEgresos(conn, ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad, obra, fuente, renglon);
 			
+			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(ArrayList<EgresoGasto> historico : historicos){
 				CLogger.writeConsole("Calculando pronostico ejercicio = "+ejercicio+" mes = "+mes
 						+" entidad = "+(historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0)
@@ -301,7 +305,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				int ts_año_inicio = historico.get(0).getEjercicio();
 				
 				//Rengine.DEBUG = 5;
-				RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
+				
 				engine.eval("suppressPackageStartupMessages(library(forecast))");
 				String vector_aplanado = "c("+getVectorAplanado(historico)+")";
 				engine.eval("datos = " + vector_aplanado);
@@ -352,9 +356,10 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 						+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
 						+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 				double error=0;
+				int i=1;
 				for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 					ret.add(dato);
-					DateTime tiempo = inicio.plusMonths(ret.size());
+					DateTime tiempo = inicio.plusMonths(i);
 					ps.setInt(1, tiempo.getYear());
 					ps.setInt(2, tiempo.getMonthOfYear());
 					ps.setInt(3, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
@@ -376,10 +381,12 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					ps.setInt(15, ajustado ? 1 : 0);
 					ps.setTimestamp(16, new Timestamp(DateTime.now().getMillis()));
 					ps.addBatch();
+					i++;
 				}
 				ps.executeBatch();
 				ps.close();
 			}
+			engine.close();
 		}
 		catch(Exception e){
 			CLogger.writeConsole("Error al calcular los pronosticos de egresos");

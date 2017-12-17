@@ -189,6 +189,7 @@ public class CIngreso {
 			}
 			ps.executeBatch();
 			ps.close();
+			engine.close();
 		}
 		catch(Exception e){
 			CLogger.writeConsole("Error al calcular los pronosticos de ingreso recurso - auxiliar");
@@ -369,6 +370,7 @@ public class CIngreso {
 			PreparedStatement ps_catalogo=conn.prepareStatement("SELECT * FROM cp_recursos WHERE ejercicio=? ORDER BY recurso");
 			ps_catalogo.setInt(1, ejercicio);
 			ResultSet rs_catalogo = ps_catalogo.executeQuery();
+			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			while(rs_catalogo.next()){
 				ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
 				historicos = getIngresosRecurso(conn,rs_catalogo.getInt("recurso"), ejercicio, mes);
@@ -376,7 +378,6 @@ public class CIngreso {
 					CLogger.writeConsole("Calculando pronosticos para el recurso: "+rs_catalogo.getInt("recurso"));
 					int ts_año_inicio = historicos.get(0).getEjercicio();
 					//Rengine.DEBUG = 5;
-					RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 					engine.eval("suppressPackageStartupMessages(library(forecast))");
 					String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
 					engine.eval("datos = " + vector_aplanado);
@@ -442,6 +443,7 @@ public class CIngreso {
 					CLogger.writeConsole("Calculo finalizado recurso: "+rs_catalogo.getInt("recurso"));
 				}
 			}
+			engine.close();
 			rs_catalogo.close();
 			ps_catalogo.close();
 		}
