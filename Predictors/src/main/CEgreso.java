@@ -87,6 +87,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 			ArrayList<Integer> entidades = getEntidadesGobiernoCentro(conn, ejercicio);
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(Integer entidad:entidades){
+				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad);
 				ArrayList<EgresoGasto> historicos = new ArrayList<EgresoGasto>();
 				historicos = getEgresosEntidad(conn, ejercicio, mes, entidad);
 				int ts_año_inicio = historicos.get(0).getEjercicio();
@@ -115,14 +116,14 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				engine.eval("error=accuracy(fc)[5]");
 				double error_arima = engine.eval("error").asDouble();
 				
-				DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
+				DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 				DateTime fin = inicio.plusMonths(numero_pronosticos);
 				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso "
 						+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=0 "
 						+ "and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
 				ps.setInt(1, ejercicio);
 				ps.setInt(2, mes);
-				ps.setInt(3, ejercicio);
+				ps.setInt(3, inicio.getYear());
 				ps.setInt(4, fin.getYear());
 				ps.setInt(5, fin.getYear());
 				ps.setInt(6, fin.getMonthOfYear());
@@ -134,7 +135,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 						+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
 						+ "values(?,?,?,0,0,0,0,0,0,0,0,?,?,?,?,?)");
 				double error=0;
-				int i=1;
+				int i=0;
 				for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 					ret.add(dato);
 					DateTime tiempo = inicio.plusMonths(i);
@@ -307,84 +308,87 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				//Rengine.DEBUG = 5;
 				
 				engine.eval("suppressPackageStartupMessages(library(forecast))");
-				String vector_aplanado = "c("+getVectorAplanado(historico)+")";
-				engine.eval("datos = " + vector_aplanado);
-				engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
-				if(ajustado){
-					engine.eval("ajuste = ar(BoxCox(serie,lambda=1))");
-					engine.eval("fc = forecast(ajuste,h="+numero_pronosticos+", lambda=1)");
+				String vector_aplanado = getVectorAplanado(historico);
+				if(vector_aplanado.length()>0){
+					vector_aplanado = "c("+vector_aplanado+")";
+					engine.eval("datos = " + vector_aplanado);
+					engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
+					if(ajustado){
+						engine.eval("ajuste = ar(BoxCox(serie,lambda=1))");
+						engine.eval("fc = forecast(ajuste,h="+numero_pronosticos+", lambda=1)");
+					}
+					else{
+						engine.eval("fc = forecast(ets(serie),"+numero_pronosticos+")");
+					}	
+					engine.eval("resultados=as.numeric(fc$mean)");
+					double[] res_ets=engine.eval("resultados").asDoubles();
+					engine.eval("error=accuracy(fc)[5]");
+					double error_ets = engine.eval("error").asDouble();
+					
+					engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
+					engine.eval("fc = forecast(auto.arima(serie),"+numero_pronosticos+")");
+					engine.eval("resultados=as.numeric(fc$mean)");
+					double[] res_arima=engine.eval("resultados").asDoubles();
+					engine.eval("error=accuracy(fc)[5]");
+					double error_arima = engine.eval("error").asDouble();
+					
+					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
+					DateTime fin = inicio.plusMonths(numero_pronosticos);
+					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso "
+							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=? "
+							+ "and programa=? and subprograma=? and proyecto=? and actividad=? and obra=? and fuente=? and renglon=? and ajustado=?");
+					ps.setInt(1, ejercicio);
+					ps.setInt(2, mes);
+					ps.setInt(3, inicio.getYear());
+					ps.setInt(4, fin.getYear());
+					ps.setInt(5, fin.getYear());
+					ps.setInt(6, fin.getMonthOfYear());
+					ps.setInt(7, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
+					ps.setInt(8, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
+					ps.setInt(9, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
+					ps.setInt(10, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
+					ps.setInt(11, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
+					ps.setInt(12, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
+					ps.setInt(13, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
+					ps.setInt(14, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
+					ps.setInt(15, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
+					ps.setInt(16, ajustado ? 1 : 0);
+					ps.executeUpdate();
+					ps.close();
+					ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+							+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
+							+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+					double error=0;
+					int i=0;
+					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
+						ret.add(dato);
+						DateTime tiempo = inicio.plusMonths(i);
+						ps.setInt(1, tiempo.getYear());
+						ps.setInt(2, tiempo.getMonthOfYear());
+						ps.setInt(3, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
+						ps.setInt(4, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
+						ps.setInt(5, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
+						ps.setInt(6, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
+						ps.setInt(7, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
+						ps.setInt(8, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
+						ps.setInt(9, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
+						ps.setInt(10, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
+						ps.setInt(11, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
+						ps.setDouble(12, dato);
+						ps.setString(13, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+						error = error_ets<=error_arima ? error_ets : error_arima;
+						if(!Double.isNaN(error) && !Double.isInfinite(error))
+							ps.setDouble(14,  error);
+						else
+							ps.setNull(14, java.sql.Types.DECIMAL);
+						ps.setInt(15, ajustado ? 1 : 0);
+						ps.setTimestamp(16, new Timestamp(DateTime.now().getMillis()));
+						ps.addBatch();
+						i++;
+					}
+					ps.executeBatch();
+					ps.close();
 				}
-				else{
-					engine.eval("fc = forecast(ets(serie),"+numero_pronosticos+")");
-				}	
-				engine.eval("resultados=as.numeric(fc$mean)");
-				double[] res_ets=engine.eval("resultados").asDoubles();
-				engine.eval("error=accuracy(fc)[5]");
-				double error_ets = engine.eval("error").asDouble();
-				
-				engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
-				engine.eval("fc = forecast(auto.arima(serie),"+numero_pronosticos+")");
-				engine.eval("resultados=as.numeric(fc$mean)");
-				double[] res_arima=engine.eval("resultados").asDoubles();
-				engine.eval("error=accuracy(fc)[5]");
-				double error_arima = engine.eval("error").asDouble();
-				
-				DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
-				DateTime fin = inicio.plusMonths(numero_pronosticos);
-				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso "
-						+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=? "
-						+ "and programa=? and subprograma=? and proyecto=? and actividad=? and obra=? and fuente=? and renglon=? and ajustado=?");
-				ps.setInt(1, ejercicio);
-				ps.setInt(2, mes);
-				ps.setInt(3, ejercicio);
-				ps.setInt(4, fin.getYear());
-				ps.setInt(5, fin.getYear());
-				ps.setInt(6, fin.getMonthOfYear());
-				ps.setInt(7, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
-				ps.setInt(8, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
-				ps.setInt(9, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
-				ps.setInt(10, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
-				ps.setInt(11, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
-				ps.setInt(12, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
-				ps.setInt(13, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
-				ps.setInt(14, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
-				ps.setInt(15, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
-				ps.setInt(16, ajustado ? 1 : 0);
-				ps.executeUpdate();
-				ps.close();
-				ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
-						+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
-						+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-				double error=0;
-				int i=1;
-				for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
-					ret.add(dato);
-					DateTime tiempo = inicio.plusMonths(i);
-					ps.setInt(1, tiempo.getYear());
-					ps.setInt(2, tiempo.getMonthOfYear());
-					ps.setInt(3, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
-					ps.setInt(4, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
-					ps.setInt(5, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
-					ps.setInt(6, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
-					ps.setInt(7, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
-					ps.setInt(8, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
-					ps.setInt(9, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
-					ps.setInt(10, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
-					ps.setInt(11, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
-					ps.setDouble(12, dato);
-					ps.setString(13, (error_ets<=error_arima ? "ETS" : "ARIMA"));
-					error = error_ets<=error_arima ? error_ets : error_arima;
-					if(!Double.isNaN(error) && !Double.isInfinite(error))
-						ps.setDouble(14,  error);
-					else
-						ps.setNull(14, java.sql.Types.DECIMAL);
-					ps.setInt(15, ajustado ? 1 : 0);
-					ps.setTimestamp(16, new Timestamp(DateTime.now().getMillis()));
-					ps.addBatch();
-					i++;
-				}
-				ps.executeBatch();
-				ps.close();
 			}
 			engine.close();
 		}

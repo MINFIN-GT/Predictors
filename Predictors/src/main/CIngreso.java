@@ -29,7 +29,7 @@ public class CIngreso {
 			while(rs.next()){
 				ArrayList<Double> montos=new ArrayList<Double>();
 				for(int i=1; i<=12; i++){
-					if(((rs.getInt(5)==ejercicio && i<=mes)||rs.getInt(5)<ejercicio)&& ((rs.getInt(5)<=now.getYear() && i<now.getMonthOfYear())|| rs.getInt(5)<now.getYear()))
+					if(((rs.getInt(5)==ejercicio && i<mes)||rs.getInt(5)<ejercicio) && ((rs.getInt(5)==now.getYear() && i<now.getMonthOfYear())|| rs.getInt(5)<now.getYear()))
 						montos.add(rs.getDouble(5+i));
 				}
 				IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(5), rs.getInt(1), rs.getString(2), rs.getInt(3), rs.getString(4), montos);
@@ -150,7 +150,7 @@ public class CIngreso {
 			engine.eval("error=accuracy(fc)[5]");
 			double error_arima = engine.eval("error").asDouble();
 			
-			DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
@@ -235,7 +235,7 @@ public class CIngreso {
 					engine.eval("error=accuracy(fc)[5]");
 					double error_arima = engine.eval("error").asDouble();
 					
-					DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
+					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
 					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
 							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0 and ajustado=?");
@@ -320,7 +320,7 @@ public class CIngreso {
 			engine.eval("error=accuracy(fc)[5]");
 			double error_arima = engine.eval("error").asDouble();
 			
-			DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
 					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=?");
@@ -401,13 +401,13 @@ public class CIngreso {
 					engine.eval("error=accuracy(fc)[5]");
 					double error_arima = engine.eval("error").asDouble();
 					
-					DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
+					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
 					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
 							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=?");
 					ps.setInt(1, ejercicio);
 					ps.setInt(2, mes);
-					ps.setInt(3, ejercicio);
+					ps.setInt(3, inicio.getYear());
 					ps.setInt(4, fin.getYear());
 					ps.setInt(5, fin.getYear());
 					ps.setInt(6, fin.getMonthOfYear());
@@ -486,13 +486,13 @@ ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxil
 			engine.eval("error=accuracy(fc)[5]");
 			double error_arima = engine.eval("error").asDouble();
 			
-			DateTime inicio = new DateTime(ejercicio,mes-1,1,0,0,0);
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
 					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=0 and auxiliar=0 and fuente=0 AND ajustado=?");
 			ps.setInt(1, ejercicio);
 			ps.setInt(2, mes);
-			ps.setInt(3, ejercicio);
+			ps.setInt(3, inicio.getYear());
 			ps.setInt(4, fin.getYear());
 			ps.setInt(5, fin.getYear());
 			ps.setInt(6, fin.getMonthOfYear());
