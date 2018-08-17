@@ -32,9 +32,13 @@ public class CIngreso {
 					if(((rs.getInt(5)==ejercicio && i<mes)||rs.getInt(5)<ejercicio) && ((rs.getInt(5)==now.getYear() && i<now.getMonthOfYear())|| rs.getInt(5)<now.getYear()))
 						montos.add(rs.getDouble(5+i));
 				}
-				IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(5), rs.getInt(1), rs.getString(2), rs.getInt(3), rs.getString(4), montos);
-				ret.add(temp);
+				if(montos.size()>0) {
+					IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(5), rs.getInt(1), rs.getString(2), rs.getInt(3), rs.getString(4), montos);
+					ret.add(temp);
+				}
 			}
+			rs.close();
+			ps.close();
 		}
 		catch(Exception e){
 			CLogger.writeConsole("Error al calcular los pronosticos de Ingresos. "+e.getMessage());
@@ -49,9 +53,10 @@ public class CIngreso {
 			PreparedStatement ps = conn.prepareStatement("SELECT recurso, recurso_nombre, ejercicio, "
 					+ "m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12 "
 					+ "from minfin.mv_ingreso_recurso "
-					+ "where recurso = ? and ejercicio<=? ORDER BY ejercicio, recurso");
+					+ "where recurso = ? and ejercicio between ? and ? ORDER BY ejercicio, recurso");
 			ps.setInt(1, recurso);
-			ps.setInt(2, ejercicio);
+			ps.setInt(2, ejercicio-5);
+			ps.setInt(3, ejercicio);
 			ResultSet rs = ps.executeQuery();
 			while(rs.next()){
 				ArrayList<Double> montos=new ArrayList<Double>();
@@ -59,8 +64,10 @@ public class CIngreso {
 					if(((rs.getInt(3)==ejercicio && i<mes) || rs.getInt(3)<ejercicio) && ((rs.getInt(3)==now.getYear() && i<now.getMonthOfYear()) || rs.getInt(3)<now.getYear()))
 						montos.add(rs.getDouble(3+i));
 				}
-				IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(3), rs.getInt(1), rs.getString(2), 0, null, montos);
-				ret.add(temp);
+				if(montos.size()>0) {
+					IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(3), rs.getInt(1), rs.getString(2), 0, null, montos);
+					ret.add(temp);
+				}
 			}
 		}
 		catch(Exception e){
@@ -97,8 +104,10 @@ public class CIngreso {
 					if(((rs.getInt(1)==ejercicio && i<mes) || rs.getInt(1)<ejercicio) && ((rs.getInt(1)==now.getYear() && i<now.getMonthOfYear()) || rs.getInt(1)<now.getYear()))
 						montos.add(rs.getDouble(1+i));
 				}
-				IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(1), 0, null, 0, null, montos);
-				ret.add(temp);
+				if(montos.size()>0) {
+					IngresoRecursoAuxiliar temp = new IngresoRecursoAuxiliar(rs.getInt(1), 0, null, 0, null, montos);
+					ret.add(temp);
+				}
 			}
 		}
 		catch(Exception e){
@@ -203,6 +212,7 @@ public class CIngreso {
 			PreparedStatement ps_catalogo=conn.prepareStatement("SELECT * FROM cp_recursos_auxiliares WHERE ejercicio=? ORDER BY recurso, recurso_auxiliar");
 			ps_catalogo.setInt(1, ejercicio);
 			ResultSet rs_catalogo = ps_catalogo.executeQuery();
+			RConnection engine = null;
 			while(rs_catalogo.next()){
 				ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
 				historicos = getIngresosRecursoAuxiliar(conn,rs_catalogo.getInt("recurso"),rs_catalogo.getInt("recurso_auxiliar"),ejercicio, mes);
@@ -210,7 +220,7 @@ public class CIngreso {
 					int ts_año_inicio = historicos.get(0).getEjercicio();
 					CLogger.writeConsole("Calculando pronosticos para el recurso: "+rs_catalogo.getInt("recurso")+", auxiliar: "+rs_catalogo.getInt("recurso_auxiliar"));
 					//Rengine.DEBUG = 5;
-					RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
+					engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 					
 					engine.eval("suppressPackageStartupMessages(library(forecast))");
 					String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
@@ -252,7 +262,7 @@ public class CIngreso {
 					ps.close();
 					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
 							+ "values(?,?,?,?,0,?,?,?,?,?)");
-					int month=1;
+					int month=0;
 					double error=0;
 					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 						ret.add(dato);
@@ -273,9 +283,11 @@ public class CIngreso {
 						ps.addBatch();
 						month++;
 					}
+					engine.close();
 					ps.executeBatch();
 					ps.close();
 					CLogger.writeConsole("Calculo finalizado recurso: "+rs_catalogo.getInt("recurso")+", auxiliar: "+rs_catalogo.getInt("recurso_auxiliar"));
+						
 				}
 			}
 			rs_catalogo.close();
@@ -367,7 +379,33 @@ public class CIngreso {
 	public static ArrayList<Double> getPronosticosRecursoAll(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			PreparedStatement ps_catalogo=conn.prepareStatement("SELECT * FROM cp_recursos WHERE ejercicio=? ORDER BY recurso");
+			PreparedStatement ps_catalogo=conn.prepareStatement("SELECT t1.* " +
+		    " FROM (" +
+				" SELECT c.ejercicio, c.recurso, c.nombre, c.grupo_ingreso, c.clase, c.seccion, c.grupo, " +
+				"	sum( case when c1.recurso is not null then 1 else 0 end ) hijos " +
+				"    FROM cp_recursos c left outer join cp_recursos c1 "+
+				"    ON ( c.ejercicio = c1.ejercicio " +
+				"    AND ( (c1.clase = c.clase " +
+				"         	AND c1.seccion > 0 " +
+				"           AND (c.recurso%1000) = 0 " +
+				"          ) " +
+				"          OR ( c1.clase = c.clase " +
+				"               AND c1.seccion = c.seccion " +
+				"               AND c1.grupo > 0 " +
+				"               AND  (c.recurso%100) = 0 " +
+				"          ) " +
+				"          OR ( c1.clase = c.clase " +
+				"               AND c1.seccion = c.seccion " +
+				"               AND c1.grupo BETWEEN c.grupo + 1 AND c.grupo + 9 " +
+				"               AND  (c.recurso%10) = 0 " +
+				"			 ) " +
+				"		) " +
+				"	 ) " +
+				" WHERE c.ejercicio = ? " +
+				" GROUP BY  c.ejercicio, c.recurso, c.nombre, c.grupo_ingreso, c.contenido, c.clase, c.seccion, c.grupo " +
+			") t1 " +
+			"WHERE t1.hijos = 0 "+
+			"ORDER BY t1.recurso ");
 			ps_catalogo.setInt(1, ejercicio);
 			ResultSet rs_catalogo = ps_catalogo.executeQuery();
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
@@ -380,6 +418,7 @@ public class CIngreso {
 					//Rengine.DEBUG = 5;
 					engine.eval("suppressPackageStartupMessages(library(forecast))");
 					String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
+					
 					engine.eval("datos = " + vector_aplanado);
 					engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
 					if(ajustado){
@@ -418,7 +457,7 @@ public class CIngreso {
 					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
 							+ "values(?,?,?,0,0,?,?,?,?,?)");
 					
-					int ndato=1;
+					int ndato=0;
 					double error = 0;
 					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 						ret.add(dato);
@@ -441,6 +480,8 @@ public class CIngreso {
 					ps.executeBatch();
 					ps.close();
 					CLogger.writeConsole("Calculo finalizado recurso: "+rs_catalogo.getInt("recurso"));
+					
+					
 				}
 			}
 			engine.close();
