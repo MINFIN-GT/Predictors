@@ -26,7 +26,7 @@ public class CEgreso {
 		return ret!=null && ret.length()>0 ? ret.substring(1) : "";
 	} 
 	
-	private static ArrayList<Integer> getEntidadesGobiernoCentro(Connection conn, Integer ejercicio){
+	private static ArrayList<Integer> getEntidadesGobiernoCentral(Connection conn, Integer ejercicio){
 		ArrayList<Integer> ret = new ArrayList<Integer>();
 		try{
 			PreparedStatement ps = conn.prepareStatement("SELECT * FROM cg_entidades WHERE ((entidad between 11130003 and 11130020) OR entidad = 11140021) AND ejercicio=?");
@@ -85,7 +85,7 @@ public class CEgreso {
 public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			ArrayList<Integer> entidades = getEntidadesGobiernoCentro(conn, ejercicio);
+			ArrayList<Integer> entidades = getEntidadesGobiernoCentral(conn, ejercicio);
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(Integer entidad:entidades){
 				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad);
@@ -221,46 +221,66 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					);
 			ps.setInt(1, ejercicio);
 			ResultSet rs = ps.executeQuery();
-			Integer t_entidad=null;
-			Integer t_unidad_ejecutora=null;
-			Integer t_programa = null;
-			Integer t_subprograma = null;
-			Integer t_proyecto = null;
-			Integer t_actividad = null;
-			Integer t_obra = null;
-			Integer t_fuente = null;
-			Integer t_renglon = null;
+			Integer t_entidad=-1;
+			Integer t_unidad_ejecutora=-1;
+			Integer t_programa = -1;
+			Integer t_subprograma = -1;
+			Integer t_proyecto = -1;
+			Integer t_actividad = -1;
+			Integer t_obra = -1;
+			Integer t_fuente = -1;
+			Integer t_renglon = -1;
 			ArrayList<EgresoGasto> dato=null;
+			int inicio_sumas = 0;
+			inicio_sumas = entidad!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = unidad_ejecutora!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = programa!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = subprograma!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = proyecto!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = actividad!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = obra!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = fuente!=null ?  inicio_sumas+1 : inicio_sumas;
+			inicio_sumas = renglon!=null ?  inicio_sumas+1 : inicio_sumas;
 			while(rs.next()){
 				Integer r_entidad = rs.getInt("entidad");
-				Integer r_unidad_ejecutora = (unidad_ejecutora!=null) ? rs.getInt("unidad_ejecutora") : null;
-				Integer r_programa = (programa!=null) ? rs.getInt("programa") : null;
-				Integer r_subprograma = (subprograma!=null) ? rs.getInt("subprograma") : null;
-				Integer r_proyecto = (proyecto!=null) ? rs.getInt("proyecto") : null;
-				Integer r_actividad = (actividad!=null) ? rs.getInt("actividad") : null;
-				Integer r_obra = (obra!=null) ? rs.getInt("obra") : null;
-				Integer r_fuente = (fuente!=null) ? rs.getInt("fuente") : null;
-				Integer r_renglon = (renglon!=null) ? rs.getInt("renglon") : null;
-				if(t_entidad!=r_entidad ||
-						t_unidad_ejecutora!=r_unidad_ejecutora ||
-						t_programa!=r_programa || 
-						t_subprograma!=r_subprograma ||
-						t_proyecto!=r_proyecto ||
-						t_actividad!=r_actividad ||
-						t_obra != r_obra ||
-						t_fuente!=r_fuente ||
-						t_renglon !=r_renglon
+				Integer r_unidad_ejecutora = (unidad_ejecutora!=null) ? rs.getInt("unidad_ejecutora") : -1;
+				Integer r_programa = (programa!=null) ? rs.getInt("programa") : -1;
+				Integer r_subprograma = (subprograma!=null) ? rs.getInt("subprograma") : -1;
+				Integer r_proyecto = (proyecto!=null) ? rs.getInt("proyecto") : -1;
+				Integer r_actividad = (actividad!=null) ? rs.getInt("actividad") : -1;
+				Integer r_obra = (obra!=null) ? rs.getInt("obra") : -1;
+				Integer r_fuente = (fuente!=null) ? rs.getInt("fuente") : -1;
+				Integer r_renglon = (renglon!=null) ? rs.getInt("renglon") : -1;
+				if(!t_entidad.equals(r_entidad) ||
+						!t_unidad_ejecutora.equals(r_unidad_ejecutora) ||
+						!t_programa.equals(r_programa) || 
+						!t_subprograma.equals(r_subprograma) ||
+						!t_proyecto.equals(r_proyecto) ||
+						!t_actividad.equals(r_actividad) ||
+						!t_obra.equals(r_obra) ||
+						!t_fuente.equals(r_fuente) ||
+						!t_renglon.equals(r_renglon)
 						){
 					if(dato!=null){
 						ret.add(dato);
 					}
 					dato = new ArrayList<EgresoGasto>();
+					t_entidad = r_entidad;
+					t_unidad_ejecutora = r_unidad_ejecutora;
+					t_programa = r_programa;
+					t_subprograma = r_subprograma;
+					t_proyecto = r_proyecto;
+					t_actividad = r_actividad;
+					t_obra = r_obra;
+					t_fuente = r_fuente;
+					t_renglon = r_renglon;
 				}
 					
 				ArrayList<Double> montos=new ArrayList<Double>();
+				
 				for(int i=1; i<=12; i++){
 					if(((rs.getInt(1)==ejercicio && i<mes) || rs.getInt(1)<ejercicio) && ((rs.getInt(1)==now.getYear() && i<now.getMonthOfYear()) || rs.getInt(1)<now.getYear()))
-						montos.add(rs.getDouble(1+i));
+						montos.add(rs.getDouble(inicio_sumas+i+1));
 				}
 				EgresoGasto temp = new EgresoGasto(rs.getInt(1), entidad!=null ? rs.getInt("entidad") : 0, 
 						unidad_ejecutora!=null ? rs.getInt("unidad_ejecutora") : 0, 
@@ -562,7 +582,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 	public static ArrayList<Double> getPronosticosEgresosSinRegularizacionesEntidades(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			ArrayList<Integer> entidades = getEntidadesGobiernoCentro(conn, ejercicio);
+			ArrayList<Integer> entidades = getEntidadesGobiernoCentral(conn, ejercicio);
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(Integer entidad:entidades){
 				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad);
