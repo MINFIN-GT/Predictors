@@ -15,16 +15,17 @@ import utilities.CProperties;
 
 public class CIngreso {
 	
-	public static ArrayList<IngresoRecursoAuxiliar> getIngresosRecursoAuxiliar(Connection conn, Integer recurso, Integer auxiliar, Integer ejercicio, Integer mes){
+	public static ArrayList<IngresoRecursoAuxiliar> getIngresosRecursoAuxiliar(Connection conn, Integer recurso, Integer auxiliar, Integer ejercicio, Integer mes, boolean real){
 		ArrayList<IngresoRecursoAuxiliar> ret = new ArrayList<IngresoRecursoAuxiliar>();
 		DateTime now = DateTime.now();
 		try{
 			PreparedStatement ps = conn.prepareStatement("SELECT recurso, recurso_nombre,"
 					+ "auxiliar, auxiliar_nombre, ejercicio, m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12 "
-					+ "FROM minfin.mv_ingreso_recurso_auxiliar WHERE recurso=? and auxiliar=? and ejercicio<=? ORDER BY ejercicio,recurso,auxiliar");
+					+ "FROM minfin.mv_ingreso_recurso_auxiliar WHERE recurso=? and auxiliar=? and ejercicio<=? and fecha_referencia=? ORDER BY ejercicio,recurso,auxiliar");
 			ps.setInt(1, recurso);
 			ps.setInt(2, auxiliar);
 			ps.setInt(3, ejercicio);
+			ps.setString(4, real ? "Fecha Real" : "Fecha Aprobado");
 			ResultSet rs = ps.executeQuery();
 			while(rs.next()){
 				ArrayList<Double> montos=new ArrayList<Double>();
@@ -46,17 +47,18 @@ public class CIngreso {
 		return ret;
 	}
 	
-	public static ArrayList<IngresoRecursoAuxiliar> getIngresosRecurso(Connection conn, Integer recurso, Integer ejercicio, Integer mes){
+	public static ArrayList<IngresoRecursoAuxiliar> getIngresosRecurso(Connection conn, Integer recurso, Integer ejercicio, Integer mes, boolean real){
 		ArrayList<IngresoRecursoAuxiliar> ret = new ArrayList<IngresoRecursoAuxiliar>();
 		DateTime now = DateTime.now();
 		try{
 			PreparedStatement ps = conn.prepareStatement("SELECT recurso, recurso_nombre, ejercicio, "
 					+ "m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12 "
 					+ "from minfin.mv_ingreso_recurso "
-					+ "where recurso = ? and ejercicio between ? and ? ORDER BY ejercicio, recurso");
+					+ "where recurso = ? and ejercicio between ? and ? and fecha_referencia=? ORDER BY ejercicio, recurso");
 			ps.setInt(1, recurso);
 			ps.setInt(2, ejercicio-5);
 			ps.setInt(3, ejercicio);
+			ps.setString(4, real ? "Fecha Real" : "Fecha Aprobado");
 			ResultSet rs = ps.executeQuery();
 			while(rs.next()){
 				ArrayList<Double> montos=new ArrayList<Double>();
@@ -76,7 +78,7 @@ public class CIngreso {
 		return ret;
 	}
 	
-	public static ArrayList<IngresoRecursoAuxiliar> getIngresosRecursosTotales(Connection conn, Integer ejercicio, Integer mes){
+	public static ArrayList<IngresoRecursoAuxiliar> getIngresosRecursosTotales(Connection conn, Integer ejercicio, Integer mes, boolean real){
 		ArrayList<IngresoRecursoAuxiliar> ret = new ArrayList<IngresoRecursoAuxiliar>();
 		DateTime now = DateTime.now();
 		try{
@@ -95,8 +97,10 @@ public class CIngreso {
 					+ "sum(m12) m12 "
 					+ "from minfin.mv_ingreso_recurso "
 					+ "where ejercicio<=? "
+					+ "and fecha_referencia=?"
 					+ "group by ejercicio ORDER BY ejercicio");
 			ps.setInt(1, ejercicio);
+			ps.setString(2, real ? "Fecha Real" : "Fecha Aprobado");
 			ResultSet rs = ps.executeQuery();
 			while(rs.next()){
 				ArrayList<Double> montos=new ArrayList<Double>();
@@ -127,11 +131,11 @@ public class CIngreso {
 		return ret!=null && ret.length()>0 ? ret.substring(1) : "";
 	} 
 	
-	public static ArrayList<Double> getPronosticosRecursoAuxiliar(Connection conn,Integer recurso, Integer auxiliar, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
+	public static ArrayList<Double> getPronosticosRecursoAuxiliar(Connection conn,Integer recurso, Integer auxiliar, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado, boolean real){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
-			historicos = getIngresosRecursoAuxiliar(conn,recurso,auxiliar, ejercicio, mes);
+			historicos = getIngresosRecursoAuxiliar(conn,recurso,auxiliar, ejercicio, mes, real);
 			int ts_año_inicio = historicos.get(0).getEjercicio();
 			//Rengine.DEBUG = 5;
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
@@ -163,7 +167,7 @@ public class CIngreso {
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0 and ajustado=?");
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0 and ajustado=? and fecha_referencia=?");
 			ps.setInt(1, ejercicio);
 			ps.setInt(2, mes);
 			ps.setInt(3, ejercicio);
@@ -173,10 +177,12 @@ public class CIngreso {
 			ps.setInt(7, recurso);
 			ps.setInt(8, auxiliar);
 			ps.setInt(9, ajustado ? 1 : 0);
+			ps.setString(10, real ? "Fecha Real" : "Fecha Aprobado");
 			ps.executeUpdate();
 			ps.close();
-			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
-					+ "values(?,?,?,?,0,?,?,?,?,?)");
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, "
+					+ "ajustado, fecha_calculo,fecha_referencia) "
+					+ "values(?,?,?,?,0,?,?,?,?,?,?)");
 			double error = 0;
 			for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 				ret.add(dato);
@@ -194,6 +200,7 @@ public class CIngreso {
 					ps.setNull(7, java.sql.Types.DECIMAL);
 				ps.setInt(8, ajustado ? 1 : 0);
 				ps.setTimestamp(9, new Timestamp(DateTime.now().getMillis()));
+				ps.setString(10, real ? "Fecha Real" : "Fecha Aprobado");
 				ps.addBatch();
 			}
 			ps.executeBatch();
@@ -206,7 +213,8 @@ public class CIngreso {
 		return ret;
 	}
 	
-	public static ArrayList<Double> getPronosticosRecursoAuxiliarAll(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
+	public static ArrayList<Double> getPronosticosRecursoAuxiliarAll(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, 
+			boolean ajustado, boolean real){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			PreparedStatement ps_catalogo=conn.prepareStatement("SELECT * FROM cp_recursos_auxiliares WHERE ejercicio=? ORDER BY recurso, recurso_auxiliar");
@@ -215,7 +223,7 @@ public class CIngreso {
 			RConnection engine = null;
 			while(rs_catalogo.next()){
 				ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
-				historicos = getIngresosRecursoAuxiliar(conn,rs_catalogo.getInt("recurso"),rs_catalogo.getInt("recurso_auxiliar"),ejercicio, mes);
+				historicos = getIngresosRecursoAuxiliar(conn,rs_catalogo.getInt("recurso"),rs_catalogo.getInt("recurso_auxiliar"),ejercicio, mes, real);
 				if(historicos!=null &&  historicos.size()>0){
 					int ts_año_inicio = historicos.get(0).getEjercicio();
 					CLogger.writeConsole("Calculando pronosticos para el recurso: "+rs_catalogo.getInt("recurso")+", auxiliar: "+rs_catalogo.getInt("recurso_auxiliar"));
@@ -248,7 +256,7 @@ public class CIngreso {
 					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
 					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0 and ajustado=?");
+							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=? and fuente=0 and ajustado=? and fecha_referencia=?");
 					ps.setInt(1, ejercicio);
 					ps.setInt(2, mes);
 					ps.setInt(3, ejercicio);
@@ -258,10 +266,11 @@ public class CIngreso {
 					ps.setInt(7, rs_catalogo.getInt("recurso"));
 					ps.setInt(8, rs_catalogo.getInt("recurso_auxiliar"));
 					ps.setInt(9, ajustado ? 1 : 0);
+					ps.setString(10, real ? "Fecha Real" : "Fecha Aprobado");
 					ps.executeUpdate();
 					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
-							+ "values(?,?,?,?,0,?,?,?,?,?)");
+					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo, fecha_referencia) "
+							+ "values(?,?,?,?,0,?,?,?,?,?,?)");
 					int month=0;
 					double error=0;
 					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
@@ -280,6 +289,7 @@ public class CIngreso {
 							ps.setNull(7, java.sql.Types.DECIMAL);
 						ps.setInt(8, ajustado ? 1 : 0);
 						ps.setTimestamp(9, new Timestamp(DateTime.now().getMillis()));
+						ps.setString(10, real ? "Fecha Real" : "Fecha Aprobado");
 						ps.addBatch();
 						month++;
 					}
@@ -300,11 +310,11 @@ public class CIngreso {
 		return ret;
 	}
 	
-	public static ArrayList<Double> getPronosticosRecurso(Connection conn,Integer recurso, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
+	public static ArrayList<Double> getPronosticosRecurso(Connection conn,Integer recurso, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado, boolean real){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
-			historicos = getIngresosRecurso(conn,recurso, ejercicio, mes);
+			historicos = getIngresosRecurso(conn,recurso, ejercicio, mes, real);
 			int ts_año_inicio = historicos.get(0).getEjercicio();
 			//Rengine.DEBUG = 5;
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
@@ -335,7 +345,7 @@ public class CIngreso {
 			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=?");
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=? and fecha_referencia=?");
 			ps.setInt(1, ejercicio);
 			ps.setInt(2, mes);
 			ps.setInt(3, ejercicio);
@@ -344,10 +354,11 @@ public class CIngreso {
 			ps.setInt(6, fin.getMonthOfYear());
 			ps.setInt(7, recurso);
 			ps.setInt(8, ajustado ? 1 : 0);
+			ps.setString(9, real ? "Fecha Real" : "Fecha Aprobado");
 			ps.executeUpdate();
 			ps.close();
-			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
-					+ "values(?,?,?,0,0,?,?,?,?,?)");
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo, fecha_referencia) "
+					+ "values(?,?,?,0,0,?,?,?,?,?,?)");
 			double error = 0;
 			for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 				ret.add(dato);
@@ -364,6 +375,7 @@ public class CIngreso {
 					ps.setNull(7, java.sql.Types.DECIMAL);
 				ps.setInt(8, ajustado ? 1 : 0);
 				ps.setTimestamp(9, new Timestamp(DateTime.now().getMillis()));
+				ps.setString(10, real ? "Fecha Real" : "Fecha Aprobado");
 				ps.addBatch();
 			}
 			ps.executeBatch();
@@ -376,7 +388,7 @@ public class CIngreso {
 		return ret;
 	}
 	
-	public static ArrayList<Double> getPronosticosRecursoAll(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
+	public static ArrayList<Double> getPronosticosRecursoAll(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado, boolean real){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			PreparedStatement ps_catalogo=conn.prepareStatement("SELECT t1.* " +
@@ -411,7 +423,7 @@ public class CIngreso {
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			while(rs_catalogo.next()){
 				ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
-				historicos = getIngresosRecurso(conn,rs_catalogo.getInt("recurso"), ejercicio, mes);
+				historicos = getIngresosRecurso(conn,rs_catalogo.getInt("recurso"), ejercicio, mes, real);
 				if(historicos!=null && historicos.size()>0){
 					CLogger.writeConsole("Calculando pronosticos para el recurso: "+rs_catalogo.getInt("recurso"));
 					int ts_año_inicio = historicos.get(0).getEjercicio();
@@ -443,7 +455,7 @@ public class CIngreso {
 					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
 					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=?");
+							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=? and auxiliar=0 and fuente=0 and ajustado=? and fecha_referencia=?");
 					ps.setInt(1, ejercicio);
 					ps.setInt(2, mes);
 					ps.setInt(3, inicio.getYear());
@@ -452,10 +464,12 @@ public class CIngreso {
 					ps.setInt(6, fin.getMonthOfYear());
 					ps.setInt(7, rs_catalogo.getInt("recurso"));
 					ps.setInt(8, ajustado ? 1 : 0);
+					ps.setString(9, real ? "Fecha Real" : "Fecha Aprobado");
 					ps.executeUpdate();
 					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
-							+ "values(?,?,?,0,0,?,?,?,?,?)");
+					ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, "
+							+ "ajustado, fecha_calculo, fecha_referencia) "
+							+ "values(?,?,?,0,0,?,?,?,?,?,?)");
 					
 					int ndato=0;
 					double error = 0;
@@ -474,6 +488,7 @@ public class CIngreso {
 							ps.setNull(6, java.sql.Types.DECIMAL);
 						ps.setInt(7, ajustado ? 1 : 0);
 						ps.setTimestamp(8, new Timestamp(DateTime.now().getMillis()));
+						ps.setString(9, real ? "Fecha Real" : "Fecha Aprobado");
 						ps.addBatch();
 						ndato++;
 					}
@@ -495,11 +510,11 @@ public class CIngreso {
 		return ret;
 	}
 	
-	public static ArrayList<Double> getPronosticosRecursosTotales(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
+	public static ArrayList<Double> getPronosticosRecursosTotales(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado, boolean real){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxiliar>();
-			historicos = getIngresosRecursosTotales(conn, ejercicio, mes);
+			historicos = getIngresosRecursosTotales(conn, ejercicio, mes, real);
 			int ts_año_inicio = historicos.get(0).getEjercicio();
 			
 			//Rengine.DEBUG = 5;
@@ -530,7 +545,7 @@ ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxil
 			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 			DateTime fin = inicio.plusMonths(numero_pronosticos);
 			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_ingreso_recurso_auxiliar "
-					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=0 and auxiliar=0 and fuente=0 AND ajustado=?");
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and recurso=0 and auxiliar=0 and fuente=0 AND ajustado=? and fecha_referencia=?");
 			ps.setInt(1, ejercicio);
 			ps.setInt(2, mes);
 			ps.setInt(3, inicio.getYear());
@@ -538,10 +553,11 @@ ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxil
 			ps.setInt(5, fin.getYear());
 			ps.setInt(6, fin.getMonthOfYear());
 			ps.setInt(7, ajustado ? 1 : 0);
+			ps.setString(8, real ? "Fecha Real" : "Fecha Aprobado");
 			ps.executeUpdate();
 			ps.close();
-			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo) "
-					+ "values(?,?,0,0,0,?,?,?,?,?)");
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_ingreso_recurso_auxiliar(ejercicio, mes, recurso, auxiliar, fuente, monto, modelo, error_modelo, ajustado, fecha_calculo, fecha_referencia) "
+					+ "values(?,?,0,0,0,?,?,?,?,?,?)");
 			double error=0;
 			for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 				ret.add(dato);
@@ -557,6 +573,7 @@ ArrayList<IngresoRecursoAuxiliar> historicos = new ArrayList<IngresoRecursoAuxil
 					ps.setNull(5, java.sql.Types.DECIMAL);
 				ps.setInt(6, ajustado ? 1 : 0);
 				ps.setTimestamp(7, new Timestamp(DateTime.now().getMillis()));
+				ps.setString(8, real ? "Fecha Real" : "Fecha Aprobado");
 				ps.addBatch();
 			}
 			ps.executeBatch();

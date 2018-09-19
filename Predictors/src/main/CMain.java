@@ -52,8 +52,9 @@ private static Options options;
 				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
 				    Integer recurso=(argumentos.length>3) ? Integer.parseInt(argumentos[3]) : 0;
 				    Integer auxiliar=(argumentos.length>4) ? Integer.parseInt(argumentos[4]) : 0;
-				    boolean ajustado=(argumentos.length>5) ? Integer.parseInt(argumentos[5])==1 : false;
-					CIngreso.getPronosticosRecursoAuxiliar(conn, recurso, auxiliar, año, mes, numero_datos, ajustado);
+				    boolean fecha_real=(argumentos.length>5) ? argumentos[5].compareTo("Real")==0 : false;
+				    boolean ajustado=(argumentos.length>6) ? Integer.parseInt(argumentos[6])==1 : false;
+					CIngreso.getPronosticosRecursoAuxiliar(conn, recurso, auxiliar, año, mes, numero_datos, ajustado, fecha_real);
 				}
 				if(cline.hasOption("ing_ra_all")){
 					CLogger.writeConsole("Inicio calculos pronosticos ingresos recurso - auxiliar (Todos los auxiliares)...");
@@ -61,8 +62,9 @@ private static Options options;
 					Integer año=(argumentos.length>0) ? Integer.parseInt(argumentos[0]) : start.getYear();
 					Integer mes=(argumentos.length>1) ? Integer.parseInt(argumentos[1]) : start.getMonthOfYear();
 				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
-				    boolean ajustado=(argumentos.length>3) ? Integer.parseInt(argumentos[3])==1 : false;
-				    CIngreso.getPronosticosRecursoAuxiliarAll(conn, año, mes, numero_datos, ajustado);
+				    boolean fecha_real=(argumentos.length>3) ? argumentos[3].compareTo("Real")==0 : false;
+				    boolean ajustado=(argumentos.length>4) ? Integer.parseInt(argumentos[4])==1 : false;
+				    CIngreso.getPronosticosRecursoAuxiliarAll(conn, año, mes, numero_datos, ajustado, fecha_real);
 				}
 				else if(cline.hasOption("ing_r")){
 					CLogger.writeConsole("Inicio calculos pronosticos ingresos recurso...");
@@ -71,8 +73,9 @@ private static Options options;
 					Integer mes=(argumentos.length>1) ? Integer.parseInt(argumentos[1]) : start.getMonthOfYear();
 				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
 				    Integer recurso=(argumentos.length>3) ? Integer.parseInt(argumentos[3]) : 0;
-				    boolean ajustado=(argumentos.length>3) ? Integer.parseInt(argumentos[3])==1 : false;
-					CIngreso.getPronosticosRecurso(conn, recurso, año, mes, numero_datos, ajustado);
+				    boolean fecha_real=(argumentos.length>4) ? argumentos[4].compareTo("Real")==0 : false;
+				    boolean ajustado=(argumentos.length>5) ? Integer.parseInt(argumentos[5])==1 : false;
+					CIngreso.getPronosticosRecurso(conn, recurso, año, mes, numero_datos, ajustado, fecha_real);
 				}
 				else if(cline.hasOption("ing_r_all")){
 					CLogger.writeConsole("Inicio calculos pronosticos ingresos recurso (Todos los recursos)...");
@@ -80,8 +83,9 @@ private static Options options;
 					Integer año=(argumentos.length>0) ? Integer.parseInt(argumentos[0]) : start.getYear();
 					Integer mes=(argumentos.length>1) ? Integer.parseInt(argumentos[1]) : start.getMonthOfYear();
 				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
-				    boolean ajustado=(argumentos.length>3) ? Integer.parseInt(argumentos[3])==1 : false;
-				    CIngreso.getPronosticosRecursoAll(conn, año, mes, numero_datos, ajustado);
+				    boolean fecha_real=(argumentos.length>3) ? argumentos[3].compareTo("Real")==0 : false;
+				    boolean ajustado=(argumentos.length>4) ? Integer.parseInt(argumentos[4])==1 : false;
+				    CIngreso.getPronosticosRecursoAll(conn, año, mes, numero_datos, ajustado, fecha_real);
 				}
 				else if(cline.hasOption("ing")){
 					CLogger.writeConsole("Inicio calculos pronosticos ingresos totales...");
@@ -89,8 +93,9 @@ private static Options options;
 					Integer año=(argumentos.length>0) ? Integer.parseInt(argumentos[0]) : start.getYear();
 					Integer mes=(argumentos.length>1) ? Integer.parseInt(argumentos[1]) : start.getMonthOfYear();
 				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
-				    boolean ajustado=(argumentos.length>3) ? Integer.parseInt(argumentos[3])==1 : false;
-					CIngreso.getPronosticosRecursosTotales(conn, año, mes, numero_datos, ajustado);
+				    boolean fecha_real=(argumentos.length>3) ? argumentos[3].compareTo("Real")==0 : false;
+				    boolean ajustado=(argumentos.length>4) ? Integer.parseInt(argumentos[4])==1 : false;
+					CIngreso.getPronosticosRecursosTotales(conn, año, mes, numero_datos, ajustado, fecha_real);
 				}
 				else if(cline.hasOption("egr")){
 					CLogger.writeConsole("Inicio calculos pronosticos egresos totales...");
