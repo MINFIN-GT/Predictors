@@ -457,7 +457,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 	public static ArrayList<Double> getPronosticosEgresosAnticiposContables(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			String[] clase_registros =  {"EIA","EIAP","EIC","EICO","EID","EIE","EIF","EIP","EIR","FRA","FRC","FRR"};
+			String[] clase_registros =  {"EIA","EIAP","EIC","EICO","EID","EIE","EIF","EIP","EIR","FRA","FRC","FRR", "NDB"};
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(int i=0; i<clase_registros.length; i++){
 				CLogger.writeConsole("Calculando pronostico para la clase registro "+clase_registros[i]);
