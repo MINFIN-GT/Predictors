@@ -42,7 +42,7 @@ public class CEgreso {
 		return ret;
 	}
 	
-	public static ArrayList<EgresoGasto> getEgresosEntidad(Connection conn, Integer ejercicio, Integer mes, Integer entidad){
+	public static ArrayList<EgresoGasto> getEgresosEntidad(Connection conn, Integer ejercicio, Integer mes, Integer entidad, boolean fecha_devengado){
 		ArrayList<EgresoGasto> ret = new ArrayList<EgresoGasto>();
 		DateTime now = DateTime.now();
 		try{
@@ -59,7 +59,9 @@ public class CEgreso {
 					+ "sum(m10) m10, "
 					+ "sum(m11) m11, "
 					+ "sum(m12) m12 "
-					+ "from minfin.mv_ejecucion_presupuestaria_mensualizada "
+					+ "from minfin.mv_ejecucion_presupuestaria_mensualizada" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " "
+					+ " "
 					+ "where ejercicio between  ? and ? and entidad=? "
 					+ "group by ejercicio ORDER BY ejercicio, entidad");
 			ps.setInt(1, ejercicio-5);
@@ -82,7 +84,7 @@ public class CEgreso {
 		return ret;
 	}
 	
-public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
+public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado, boolean fecha_devengado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			ArrayList<Integer> entidades = getEntidadesGobiernoCentral(conn, ejercicio);
@@ -90,7 +92,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 			for(Integer entidad:entidades){
 				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad);
 				ArrayList<EgresoGasto> historicos = new ArrayList<EgresoGasto>();
-				historicos = getEgresosEntidad(conn, ejercicio, mes, entidad);
+				historicos = getEgresosEntidad(conn, ejercicio, mes, entidad, fecha_devengado);
 				int ts_año_inicio = historicos.get(0).getEjercicio();
 				
 				//Rengine.DEBUG = 5;
@@ -119,9 +121,10 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				
 				DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 				DateTime fin = inicio.plusMonths(numero_pronosticos);
-				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso "
-						+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=0 "
-						+ "and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
+				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso" + 
+						(fecha_devengado==false ? "_fecha_pagado_total" : "") + " "  
+						+ " WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=0 "
+						+ " and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
 				ps.setInt(1, ejercicio);
 				ps.setInt(2, mes);
 				ps.setInt(3, inicio.getYear());
@@ -132,7 +135,9 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				ps.setInt(8, ajustado ? 1 : 0);
 				ps.executeUpdate();
 				ps.close();
-				ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+				ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso"+
+						(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
+						+"(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
 						+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
 						+ "values(?,?,?,0,0,0,0,0,0,0,0,?,?,?,?,?)");
 				double error=0;
@@ -168,7 +173,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 	}
 	
 	public static ArrayList<ArrayList<EgresoGasto>> getEgresos(Connection conn, Integer ejercicio, Integer mes, Integer entidad, Integer unidad_ejecutora,
-			Integer programa, Integer subprograma, Integer proyecto, Integer actividad, Integer obra, Integer fuente, Integer renglon){
+			Integer programa, Integer subprograma, Integer proyecto, Integer actividad, Integer obra, Integer fuente, Integer renglon, boolean fecha_devengado){
 		ArrayList<ArrayList<EgresoGasto>> ret = new ArrayList<ArrayList<EgresoGasto>>();
 		DateTime now = DateTime.now();
 		try{
@@ -194,7 +199,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					+ "sum(m10) m10, "
 					+ "sum(m11) m11, "
 					+ "sum(m12) m12 "
-					+ "from minfin.mv_ejecucion_presupuestaria_mensualizada "
+					+ "from minfin.mv_ejecucion_presupuestaria_mensualizada" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
 					+ "where ejercicio<= ? "
 					+ "group by "
 					+ ((entidad!=null) ? "entidad, " : "")
@@ -304,11 +310,11 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 	
 	public static ArrayList<Double> getPronosticosEgresos(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado,
 			Integer entidad, Integer unidad_ejecutora, Integer programa, Integer subprograma, Integer proyecto, Integer actividad, Integer obra,
-			Integer fuente, Integer renglon){
+			Integer fuente, Integer renglon, boolean fecha_devengado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			ArrayList<ArrayList<EgresoGasto>> historicos = new ArrayList<ArrayList<EgresoGasto>>();
-			historicos = getEgresos(conn, ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad, obra, fuente, renglon);
+			historicos = getEgresos(conn, ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad, obra, fuente, renglon, fecha_devengado);
 			
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(ArrayList<EgresoGasto> historico : historicos){
@@ -354,7 +360,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					
 					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
-					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso "
+					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso" +
+							(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
 							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=? "
 							+ "and programa=? and subprograma=? and proyecto=? and actividad=? and obra=? and fuente=? and renglon=? and ajustado=?");
 					ps.setInt(1, ejercicio);
@@ -375,7 +382,9 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					ps.setInt(16, ajustado ? 1 : 0);
 					ps.executeUpdate();
 					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+					ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso"+
+							(fecha_devengado==false ? "_fecha_pagado_total" : "") 
+							+"(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
 							+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
 							+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 					double error=0;
@@ -538,7 +547,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 		return ret;
 	}
 	
-	public static ArrayList<EgresoGasto> getEgresosSinRegularizacionesEntidad(Connection conn, Integer ejercicio, Integer mes, Integer entidad){
+	public static ArrayList<EgresoGasto> getEgresosSinRegularizacionesEntidad(Connection conn, Integer ejercicio, Integer mes, Integer entidad,
+			boolean fecha_devengado){
 		ArrayList<EgresoGasto> ret = new ArrayList<EgresoGasto>();
 		DateTime now = DateTime.now();
 		try{
@@ -555,7 +565,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					"sum(case when mes = 10 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m10, " + 
 					"sum(case when mes = 11 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m11, " + 
 					"sum(case when mes = 12 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m12 " + 
-					"from minfin.mv_gasto_sin_regularizaciones " + 
+					"from minfin.mv_gasto_sin_regularizaciones" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " +
 					"where ejercicio between ? and ? and entidad = ? " + 
 					"group by ejercicio,entidad ORDER BY ejercicio, entidad");
 			ps.setInt(1, ejercicio-5);
@@ -578,7 +589,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 		return ret;
 	}
 	
-	public static ArrayList<Double> getPronosticosEgresosSinRegularizacionesEntidades(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
+	public static ArrayList<Double> getPronosticosEgresosSinRegularizacionesEntidades(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado,
+			boolean fecha_devengado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			ArrayList<Integer> entidades = getEntidadesGobiernoCentral(conn, ejercicio);
@@ -586,7 +598,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 			for(Integer entidad:entidades){
 				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad);
 				ArrayList<EgresoGasto> historicos = new ArrayList<EgresoGasto>();
-				historicos = getEgresosSinRegularizacionesEntidad(conn, ejercicio, mes, entidad);
+				historicos = getEgresosSinRegularizacionesEntidad(conn, ejercicio, mes, entidad, fecha_devengado);
 				int ts_año_inicio = historicos.get(0).getEjercicio();
 				
 				//Rengine.DEBUG = 5;
@@ -615,7 +627,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				
 				DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 				DateTime fin = inicio.plusMonths(numero_pronosticos);
-				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones "
+				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones" +
+						(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
 						+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=0 "
 						+ "and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
 				ps.setInt(1, ejercicio);
@@ -628,7 +641,9 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				ps.setInt(8, ajustado ? 1 : 0);
 				ps.executeUpdate();
 				ps.close();
-				ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+				ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones" + 
+						(fecha_devengado==false ? "_fecha_pagado_total" : "") 
+						+ "(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
 						+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
 						+ "values(?,?,?,0,0,0,0,0,0,0,0,?,?,?,?,?)");
 				double error=0;
@@ -664,7 +679,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 	}
 	
 	public static ArrayList<ArrayList<EgresoGasto>> getEgresosSinRegularizaciones(Connection conn, Integer ejercicio, Integer mes, Integer entidad, Integer unidad_ejecutora,
-			Integer programa, Integer subprograma, Integer proyecto, Integer actividad, Integer obra, Integer fuente, Integer renglon){
+			Integer programa, Integer subprograma, Integer proyecto, Integer actividad, Integer obra, Integer fuente, Integer renglon, boolean fecha_devengado){
 		ArrayList<ArrayList<EgresoGasto>> ret = new ArrayList<ArrayList<EgresoGasto>>();
 		DateTime now = DateTime.now();
 		try{
@@ -690,7 +705,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					"sum(case when mes = 10 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m10, " + 
 					"sum(case when mes = 11 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m11, " + 
 					"sum(case when mes = 12 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m12 " + 
-					"from minfin.mv_gasto_sin_regularizaciones " + 
+					"from minfin.mv_gasto_sin_regularizaciones" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " +
 					"where ejercicio between ? and ? " + 
 					"group by "
 					+ ((entidad!=null) ? "entidad, " : "")
@@ -800,11 +816,11 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 	
 	public static ArrayList<Double> getPronosticosEgresosSinRegularizaciones(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado,
 			Integer entidad, Integer unidad_ejecutora, Integer programa, Integer subprograma, Integer proyecto, Integer actividad, Integer obra,
-			Integer fuente, Integer renglon){
+			Integer fuente, Integer renglon, boolean fecha_devengado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
 			ArrayList<ArrayList<EgresoGasto>> historicos = new ArrayList<ArrayList<EgresoGasto>>();
-			historicos = getEgresosSinRegularizaciones(conn, ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad, obra, fuente, renglon);
+			historicos = getEgresosSinRegularizaciones(conn, ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad, obra, fuente, renglon, fecha_devengado);
 			
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
 			for(ArrayList<EgresoGasto> historico : historicos){
@@ -850,7 +866,8 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					
 					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
 					DateTime fin = inicio.plusMonths(numero_pronosticos);
-					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones "
+					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones" +
+							(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
 							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=? "
 							+ "and programa=? and subprograma=? and proyecto=? and actividad=? and obra=? and fuente=? and renglon=? and ajustado=?");
 					ps.setInt(1, ejercicio);
@@ -871,7 +888,9 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					ps.setInt(16, ajustado ? 1 : 0);
 					ps.executeUpdate();
 					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+					ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones" +
+							(fecha_devengado==false ? "_fecha_pagado_total" : "") 
+							+ "(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
 							+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
 							+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 					double error=0;

@@ -28,10 +28,12 @@ private static Options options;
 		options.addOption(Option.builder("ing").hasArgs().longOpt("ing").desc("<ejercicio> <mes de inicio> <numero de pronosticos> <ajustado> calcula los pronosticos para los ingresos generales").build());
 		
 		options.addOption(Option.builder("egr").hasArgs().longOpt("egr").desc("<ejercicio> <mes de inicio> <numero de pronosticos> <ajustado> calcula los pronosticos para los egresos generales").build());
+		options.addOption(Option.builder("egr_fp").hasArgs().longOpt("egr_fp").desc("<ejercicio> <mes de inicio> <numero de pronosticos> <ajustado> calcula los pronosticos para los egresos generales").build());
 		options.addOption(Option.builder("egr_grupo").hasArgs().longOpt("egr_grupo").desc("<ejercicio> <mes de inicio> <numero de pronosticos> <ajustado> calcula los pronosticos para los egresos generales").build());
 		options.addOption(Option.builder("egr_anticipos").hasArgs().longOpt("egr_anticipos").desc("<ejercicio> calcula los pronosticos para los egresos contables de anticipos").build());
 		options.addOption(Option.builder("egr_sin_reg").hasArgs().longOpt("egr_sin_reg").desc("<ejercicio> <mes de inicio> <numero de pronosticos> <ajustado> calcula los pronosticos para los egresos generales sin regularizaciones").build());
 		options.addOption(Option.builder("egr_grupo_sin_reg").hasArgs().longOpt("egr_grupo_sin_reg").desc("<ejercicio> <mes de inicio> <numero de pronosticos> <ajustado> calcula los pronosticos para los egresos generales sin regularizaciones").build());
+		options.addOption(Option.builder("egr_sin_reg_fp").hasArgs().longOpt("egr_sin_reg_fp").desc("<ejercicio> <mes de inicio> <numero de pronosticos> <ajustado> calcula los pronosticos para los egresos generales sin regularizaciones").build());
 		
 		options.addOption(Option.builder("help").longOpt("help").desc("ayuda de esta applicación").build());
 	}
@@ -104,26 +106,28 @@ private static Options options;
 					Integer mes=(argumentos.length>1) ? Integer.parseInt(argumentos[1]) : start.getMonthOfYear();
 				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
 				    boolean ajustado=(argumentos.length>3) ? Integer.parseInt(argumentos[3])==1 : false;
-					CEgreso.getPronosticosEgresosEntidades(conn, año, mes, numero_datos, ajustado);
+				    boolean fecha_devengado=(argumentos.length>4) ? argumentos[4].compareTo("Devengado")==0 : false;
+					CEgreso.getPronosticosEgresosEntidades(conn, año, mes, numero_datos, ajustado, fecha_devengado);
 				}
 				else if(cline.hasOption("egr_grupo")){
 					CLogger.writeConsole("Inicio calculos pronosticos egresos agrupados...");
 					String[] argumentos = cline.getOptionValues("egr_grupo");
 					Integer año=(argumentos.length>0) ? Integer.parseInt(argumentos[0]) : start.getYear();
 					Integer mes=(argumentos.length>1) ? Integer.parseInt(argumentos[1]) : start.getMonthOfYear();
-				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
-				    boolean ajustado=(argumentos.length>3) ? Integer.parseInt(argumentos[3])==1 : false;
-				    Integer entidad=(argumentos.length>4) ? Integer.parseInt(argumentos[4]) : null;
-				    Integer unidad_ejecutora=(argumentos.length>5) ? Integer.parseInt(argumentos[5]) : null;
-				    Integer programa=(argumentos.length>6) ? Integer.parseInt(argumentos[6]) : null;
-				    Integer subprograma=(argumentos.length>7) ? Integer.parseInt(argumentos[7]) : null;
-				    Integer proyecto=(argumentos.length>8) ? Integer.parseInt(argumentos[8]) : null;
-				    Integer actividad=(argumentos.length>9) ? Integer.parseInt(argumentos[9]) : null;
-				    Integer obra=(argumentos.length>10) ? Integer.parseInt(argumentos[10]) : null;
-				    Integer fuente=(argumentos.length>11) ? Integer.parseInt(argumentos[11]) : null;
-				    Integer renglon=(argumentos.length>12) ? Integer.parseInt(argumentos[12]) : null;
+					boolean fecha_devengado=(argumentos.length>2) ? argumentos[2].compareTo("Devengado")==0 : false;
+				    Integer numero_datos=(argumentos.length>3) ? Integer.parseInt(argumentos[3]) : 12;
+				    boolean ajustado=(argumentos.length>4) ? Integer.parseInt(argumentos[4])==1 : false;
+				    Integer entidad=(argumentos.length>5) ? Integer.parseInt(argumentos[5]) : null;
+				    Integer unidad_ejecutora=(argumentos.length>6) ? Integer.parseInt(argumentos[6]) : null;
+				    Integer programa=(argumentos.length>7) ? Integer.parseInt(argumentos[7]) : null;
+				    Integer subprograma=(argumentos.length>8) ? Integer.parseInt(argumentos[8]) : null;
+				    Integer proyecto=(argumentos.length>9) ? Integer.parseInt(argumentos[9]) : null;
+				    Integer actividad=(argumentos.length>10) ? Integer.parseInt(argumentos[10]) : null;
+				    Integer obra=(argumentos.length>11) ? Integer.parseInt(argumentos[11]) : null;
+				    Integer fuente=(argumentos.length>12) ? Integer.parseInt(argumentos[12]) : null;
+				    Integer renglon=(argumentos.length>13) ? Integer.parseInt(argumentos[13]) : null;
 					CEgreso.getPronosticosEgresos(conn, año, mes, numero_datos, ajustado, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad,
-							obra, fuente, renglon);
+							obra, fuente, renglon, fecha_devengado);
 				}
 				else if(cline.hasOption("egr_anticipos")){
 					CLogger.writeConsole("Inicio calculos pronosticos egresos de anticipos contables totales...");
@@ -141,7 +145,8 @@ private static Options options;
 					Integer mes=(argumentos.length>1) ? Integer.parseInt(argumentos[1]) : start.getMonthOfYear();
 				    Integer numero_datos=(argumentos.length>2) ? Integer.parseInt(argumentos[2]) : 12;
 				    boolean ajustado=(argumentos.length>3) ? Integer.parseInt(argumentos[3])==1 : false;
-					CEgreso.getPronosticosEgresosSinRegularizacionesEntidades(conn, año, mes, numero_datos, ajustado);
+				    boolean fecha_devengado=(argumentos.length>4) ? argumentos[4].compareTo("Devengado")==0 : false;
+					CEgreso.getPronosticosEgresosSinRegularizacionesEntidades(conn, año, mes, numero_datos, ajustado, fecha_devengado);
 				}
 				else if(cline.hasOption("egr_grupo_sin_reg")){
 					CLogger.writeConsole("Inicio calculos pronosticos egresos agrupados sin regularizaciones...");
@@ -159,8 +164,9 @@ private static Options options;
 				    Integer obra=(argumentos.length>10) ? Integer.parseInt(argumentos[10]) : null;
 				    Integer fuente=(argumentos.length>11) ? Integer.parseInt(argumentos[11]) : null;
 				    Integer renglon=(argumentos.length>12) ? Integer.parseInt(argumentos[12]) : null;
+				    boolean fecha_devengado=(argumentos.length>4) ? argumentos[4].compareTo("Devengado")==0 : false;
 					CEgreso.getPronosticosEgresosSinRegularizaciones(conn, año, mes, numero_datos, ajustado, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad,
-							obra, fuente, renglon);
+							obra, fuente, renglon, fecha_devengado);
 				}
 				else if(cline.hasOption("help")){
 					 HelpFormatter formater = new HelpFormatter();
