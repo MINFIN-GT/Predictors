@@ -20,45 +20,30 @@ public class CEgreso {
 		if(datos!=null && datos.size()>0){
 			for(EgresoGasto dato:datos){
 				for(int i=0; i<dato.getMontos().size(); i++)
-					ret = ret + ", " + String.format("%.2f",dato.getMontos().get(i));
+					ret = String.join(", ", ret,dato.getMontos().get(i).toString());
+					//ret = ret + ", " + dato.getMontos().get(i);
 			}
 		}
 		return ret!=null && ret.length()>0 ? ret.substring(1) : "";
 	} 
-	
-	private static ArrayList<Integer> getEntidadesGobiernoCentral(Connection conn, Integer ejercicio){
-		ArrayList<Integer> ret = new ArrayList<Integer>();
-		try{
-			PreparedStatement ps = conn.prepareStatement("SELECT * FROM cg_entidades WHERE ((entidad between 11130003 and 11130020) OR entidad = 11140021) AND ejercicio=?");
-			ps.setInt(1, ejercicio);
-			ResultSet rs = ps.executeQuery();
-			while(rs.next()){
-				ret.add(rs.getInt("entidad"));
-			}
-		}
-		catch(Throwable e){
-			CLogger.writeConsole("Error al consultar entidades de Gobierno Central");
-		}
-		return ret;
-	}
 	
 	public static ArrayList<EgresoGasto> getEgresosEntidad(Connection conn, Integer ejercicio, Integer mes, Integer entidad, boolean fecha_devengado){
 		ArrayList<EgresoGasto> ret = new ArrayList<EgresoGasto>();
 		DateTime now = DateTime.now();
 		try{
 			PreparedStatement ps = conn.prepareStatement("SELECT ejercicio, entidad, "
-					+ "sum(m1) m1, "
-					+ "sum(m2) m2, "
-					+ "sum(m3) m3, "
-					+ "sum(m4) m4, "
-					+ "sum(m5) m5, "
-					+ "sum(m6) m6, "
-					+ "sum(m7) m7, "
-					+ "sum(m8) m8, "
-					+ "sum(m9) m9, "
-					+ "sum(m10) m10, "
-					+ "sum(m11) m11, "
-					+ "sum(m12) m12 "
+					+ "round(sum(m1),2) m1, "
+					+ "round(sum(m2),2) m2, "
+					+ "round(sum(m3),2) m3, "
+					+ "round(sum(m4),2) m4, "
+					+ "round(sum(m5),2) m5, "
+					+ "round(sum(m6),2) m6, "
+					+ "round(sum(m7),2) m7, "
+					+ "round(sum(m8),2) m8, "
+					+ "round(sum(m9),2) m9, "
+					+ "round(sum(m10),2) m10, "
+					+ "round(sum(m11),2) m11, "
+					+ "round(sum(m12),2) m12 "
 					+ "from minfin.mv_ejecucion_presupuestaria_mensualizada" +
 					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " "
 					+ " "
@@ -87,18 +72,32 @@ public class CEgreso {
 public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado, boolean fecha_devengado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			ArrayList<Integer> entidades = getEntidadesGobiernoCentral(conn, ejercicio);
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
-			for(Integer entidad:entidades){
-				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad);
-				ArrayList<EgresoGasto> historicos = new ArrayList<EgresoGasto>();
-				historicos = getEgresosEntidad(conn, ejercicio, mes, entidad, fecha_devengado);
-				int ts_año_inicio = historicos.get(0).getEjercicio();
+			ArrayList<ArrayList<EgresoGasto>> historicos = new ArrayList<ArrayList<EgresoGasto>>();
+			historicos = getEgresosEntidades(conn, ejercicio, mes, fecha_devengado);
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
+			DateTime fin = inicio.plusMonths(numero_pronosticos);
+			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso" + 
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " "  
+					+ " WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and unidad_ejecutora=0 "
+					+ " and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
+			ps.setInt(1, ejercicio);
+			ps.setInt(2, mes);
+			ps.setInt(3, inicio.getYear());
+			ps.setInt(4, fin.getYear());
+			ps.setInt(5, fin.getYear());
+			ps.setInt(6, fin.getMonthOfYear());
+			ps.setInt(7, ajustado ? 1 : 0);
+			ps.executeUpdate();
+			ps.close();
+			for(ArrayList<EgresoGasto> entidad:historicos){
+				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad.get(0).getEntidad());
+				
+				int ts_año_inicio = entidad.get(0).getEjercicio();
 				
 				//Rengine.DEBUG = 5;
 				engine.eval("suppressPackageStartupMessages(library(forecast))");
-				String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
-				engine.eval("datos = " + vector_aplanado);
+				engine.eval("datos = c("+getVectorAplanado(entidad)+")");
 				engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
 				if(ajustado){
 					engine.eval("ajuste = ar(BoxCox(serie,lambda=1))");
@@ -119,22 +118,6 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				engine.eval("error=accuracy(fc)[5]");
 				double error_arima = engine.eval("error").asDouble();
 				
-				DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
-				DateTime fin = inicio.plusMonths(numero_pronosticos);
-				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso" + 
-						(fecha_devengado==false ? "_fecha_pagado_total" : "") + " "  
-						+ " WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=0 "
-						+ " and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
-				ps.setInt(1, ejercicio);
-				ps.setInt(2, mes);
-				ps.setInt(3, inicio.getYear());
-				ps.setInt(4, fin.getYear());
-				ps.setInt(5, fin.getYear());
-				ps.setInt(6, fin.getMonthOfYear());
-				ps.setInt(7, entidad);
-				ps.setInt(8, ajustado ? 1 : 0);
-				ps.executeUpdate();
-				ps.close();
 				ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso"+
 						(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
 						+"(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
@@ -147,7 +130,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					DateTime tiempo = inicio.plusMonths(i);
 					ps.setInt(1, tiempo.getYear());
 					ps.setInt(2, tiempo.getMonthOfYear());
-					ps.setInt(3, entidad);
+					ps.setInt(3, entidad.get(0).getEntidad());
 					ps.setDouble(4, dato);
 					ps.setString(5, (error_ets<=error_arima ? "ETS" : "ARIMA"));
 					error = error_ets<=error_arima ? error_ets : error_arima;
@@ -160,9 +143,10 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					ps.addBatch();
 					i++;
 				}
-				ps.executeBatch();
-				ps.close();
+				
 			}
+			ps.executeBatch();
+			ps.close();
 			engine.close();
 		}
 		catch(Exception e){
@@ -187,18 +171,18 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					+ ((obra!=null) ? "obra, " : "")
 					+ ((fuente!=null) ? "fuente, " : "")
 					+ ((renglon!=null) ? "renglon, " : "")
-					+ "sum(m1) m1, "
-					+ "sum(m2) m2, "
-					+ "sum(m3) m3, "
-					+ "sum(m4) m4, "
-					+ "sum(m5) m5, "
-					+ "sum(m6) m6, "
-					+ "sum(m7) m7, "
-					+ "sum(m8) m8, "
-					+ "sum(m9) m9, "
-					+ "sum(m10) m10, "
-					+ "sum(m11) m11, "
-					+ "sum(m12) m12 "
+					+ "round(sum(m1),2) m1, "
+					+ "round(sum(m2),2) m2, "
+					+ "round(sum(m3),2) m3, "
+					+ "round(sum(m4),2) m4, "
+					+ "round(sum(m5),2) m5, "
+					+ "round(sum(m6),2) m6, "
+					+ "round(sum(m7),2) m7, "
+					+ "round(sum(m8),2) m8, "
+					+ "round(sum(m9),2) m9, "
+					+ "round(sum(m10),2) m10, "
+					+ "round(sum(m11),2) m11, "
+					+ "round(sum(m12),2) m12 "
 					+ "from minfin.mv_ejecucion_presupuestaria_mensualizada" +
 					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
 					+ "where ejercicio<= ? "
@@ -317,6 +301,35 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 			historicos = getEgresos(conn, ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad, obra, fuente, renglon, fecha_devengado);
 			
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
+			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) "
+					+ ((entidad!=null && entidad>100) ? " and entidad="+entidad : " and entidad>0 ")  
+					+ ((unidad_ejecutora!=null && unidad_ejecutora>1) ? " and unidad_ejecutora="+unidad_ejecutora : "")
+					+ ((programa!=null && programa>0) ? " and programa="+programa : " ")  
+					+ ((subprograma!=null && subprograma>0) ? " and subprograma="+subprograma : " ")  
+					+ ((proyecto!=null && proyecto>0) ? " and proyecto="+proyecto : " ")  
+					+ ((actividad!=null && actividad>0) ? " and actividad="+actividad : " ")  
+					+ ((obra!=null && obra>0) ? " and obra="+obra : " ")  
+					+ ((fuente!=null && fuente>0) ? " and fuente="+fuente : " ")  
+					+ ((renglon!=null && renglon>0) ? " and renglon="+renglon : " ")  
+					+ " and ajustado=?");
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
+			DateTime fin = inicio.plusMonths(numero_pronosticos);
+			ps.setInt(1, ejercicio);
+			ps.setInt(2, mes);
+			ps.setInt(3, inicio.getYear());
+			ps.setInt(4, fin.getYear());
+			ps.setInt(5, fin.getYear());
+			ps.setInt(6, fin.getMonthOfYear());
+			ps.setInt(7, ajustado ? 1 : 0);
+			ps.executeUpdate();
+			PreparedStatement psi= conn.prepareStatement("INSERT INTO minfin.mvp_egreso"+
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") 
+					+"(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+					+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
+					+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+			int rows = 0;
 			for(ArrayList<EgresoGasto> historico : historicos){
 				CLogger.writeConsole("Calculando pronostico ejercicio = "+ejercicio+" mes = "+mes
 						+" entidad = "+(historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0)
@@ -358,68 +371,43 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					engine.eval("error=accuracy(fc)[5]");
 					double error_arima = engine.eval("error").asDouble();
 					
-					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
-					DateTime fin = inicio.plusMonths(numero_pronosticos);
-					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso" +
-							(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
-							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=? "
-							+ "and programa=? and subprograma=? and proyecto=? and actividad=? and obra=? and fuente=? and renglon=? and ajustado=?");
-					ps.setInt(1, ejercicio);
-					ps.setInt(2, mes);
-					ps.setInt(3, inicio.getYear());
-					ps.setInt(4, fin.getYear());
-					ps.setInt(5, fin.getYear());
-					ps.setInt(6, fin.getMonthOfYear());
-					ps.setInt(7, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
-					ps.setInt(8, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
-					ps.setInt(9, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
-					ps.setInt(10, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
-					ps.setInt(11, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
-					ps.setInt(12, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
-					ps.setInt(13, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
-					ps.setInt(14, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
-					ps.setInt(15, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
-					ps.setInt(16, ajustado ? 1 : 0);
-					ps.executeUpdate();
-					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso"+
-							(fecha_devengado==false ? "_fecha_pagado_total" : "") 
-							+"(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
-							+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
-							+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 					double error=0;
 					int i=0;
 					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 						ret.add(dato);
 						DateTime tiempo = inicio.plusMonths(i);
-						ps.setInt(1, tiempo.getYear());
-						ps.setInt(2, tiempo.getMonthOfYear());
-						ps.setInt(3, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
-						ps.setInt(4, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
-						ps.setInt(5, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
-						ps.setInt(6, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
-						ps.setInt(7, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
-						ps.setInt(8, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
-						ps.setInt(9, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
-						ps.setInt(10, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
-						ps.setInt(11, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
-						ps.setDouble(12, dato);
-						ps.setString(13, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+						psi.setInt(1, tiempo.getYear());
+						psi.setInt(2, tiempo.getMonthOfYear());
+						psi.setInt(3, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
+						psi.setInt(4, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
+						psi.setInt(5, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
+						psi.setInt(6, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
+						psi.setInt(7, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
+						psi.setInt(8, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
+						psi.setInt(9, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
+						psi.setInt(10, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
+						psi.setInt(11, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
+						psi.setDouble(12, dato);
+						psi.setString(13, (error_ets<=error_arima ? "ETS" : "ARIMA"));
 						error = error_ets<=error_arima ? error_ets : error_arima;
 						if(!Double.isNaN(error) && !Double.isInfinite(error))
-							ps.setDouble(14,  error);
+							psi.setDouble(14,  error);
 						else
-							ps.setNull(14, java.sql.Types.DECIMAL);
-						ps.setInt(15, ajustado ? 1 : 0);
-						ps.setTimestamp(16, new Timestamp(DateTime.now().getMillis()));
-						ps.addBatch();
+							psi.setNull(14, java.sql.Types.DECIMAL);
+						psi.setInt(15, ajustado ? 1 : 0);
+						psi.setTimestamp(16, new Timestamp(DateTime.now().getMillis()));
+						psi.addBatch();
 						i++;
+						rows++;
+						if(rows%10000==0)
+							psi.executeBatch();
 					}
-					ps.executeBatch();
-					ps.close();
 				}
 			}
+			ps.close();
 			engine.close();
+			psi.executeBatch();
+			psi.close();
 		}
 		catch(Exception e){
 			CLogger.writeConsole("Error al calcular los pronosticos de egresos");
@@ -428,32 +416,44 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 		return ret;
 	}
 	
-	public static ArrayList<EgresoGasto> getEgresosContables(Connection conn, Integer ejercicio, Integer mes, String clase_registro){
-		ArrayList<EgresoGasto> ret = new ArrayList<EgresoGasto>();
+	public static ArrayList<ArrayList<EgresoGasto>> getEgresosContables(Connection conn, Integer ejercicio, Integer mes){
+		ArrayList<ArrayList<EgresoGasto>> ret = new ArrayList<ArrayList<EgresoGasto>>();
 		DateTime now = DateTime.now();
 		try{
-			PreparedStatement ps = conn.prepareStatement("select * from mv_anticipo_contable where (ejercicio between ? and ?) and clase_registro=? order by ejercicio, mes");
+			PreparedStatement ps = conn.prepareStatement("select * from mv_anticipo_contable where (ejercicio between ? and ?) "
+					+ "and clase_registro IN ('EIA','EIAP','EIC','EICO','EID','EIE','EIF','EIP','EIR','FRA','FRC','FRR', 'NDB') "
+					+ "order by clase_registro, ejercicio, mes");
 			ps.setInt(1, ejercicio-5);
 			ps.setInt(2, ejercicio);
-			ps.setString(3, clase_registro);
 			ResultSet rs = ps.executeQuery();
 			int ejercicio_actual=0;
 			ArrayList<Double> montos=new ArrayList<Double>();
+			ArrayList<EgresoGasto> atemp = null;
+			String clase_registro_actual = "";
 			while(rs.next()){
+				if(clase_registro_actual.compareTo(rs.getString("clase_registro"))!=0) {
+					EgresoGasto temp1 = new EgresoGasto(ejercicio, 0, 0, 0,0,0,0,0,0,0, rs.getString("clase_registro"), null,null,null,null,null,null,null,null, montos);
+					atemp.add(temp1);
+					if(atemp!=null)
+						ret.add(atemp);
+					atemp = new ArrayList<EgresoGasto>();
+				}
 				if(((rs.getInt("ejercicio")==ejercicio && rs.getInt("mes")<mes) || rs.getInt("ejercicio")<ejercicio) 
 						&& ((rs.getInt("ejercicio")==now.getYear() && rs.getInt("mes")<now.getMonthOfYear()) || rs.getInt("ejercicio")<now.getYear()))
 						montos.add(rs.getDouble("monto"));
 				if(ejercicio_actual>0 && rs.getInt("ejercicio")!=ejercicio_actual) {
 					EgresoGasto temp = new EgresoGasto(rs.getInt("ejercicio"), 0, 0, 0,0,0,0,0,0,0, rs.getString("clase_registro"), null,null,null,null,null,null,null,null, montos);
-					ret.add(temp);
+					atemp.add(temp);
 					montos = new ArrayList<Double>();
 				}
 				else {
 					ejercicio_actual = rs.getInt("ejercicio"); 
 				}
 			}
-			EgresoGasto temp = new EgresoGasto(ejercicio, 0, 0, 0,0,0,0,0,0,0, clase_registro, null,null,null,null,null,null,null,null, montos);
-			ret.add(temp);
+			EgresoGasto temp1 = new EgresoGasto(ejercicio, 0, 0, 0,0,0,0,0,0,0, rs.getString("clase_registro"), null,null,null,null,null,null,null,null, montos);
+			atemp.add(temp1);
+			if(atemp!=null)
+				ret.add(atemp);
 			rs.close();
 			ps.close();
 		}
@@ -466,18 +466,36 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 	public static ArrayList<Double> getPronosticosEgresosAnticiposContables(Connection conn, Integer ejercicio, Integer mes, Integer numero_pronosticos, boolean ajustado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			String[] clase_registros =  {"EIA","EIAP","EIC","EICO","EID","EIE","EIF","EIP","EIR","FRA","FRC","FRR", "NDB"};
+			//String[] clase_registros =  {"EIA","EIAP","EIC","EICO","EID","EIE","EIF","EIP","EIR","FRA","FRC","FRR", "NDB"};
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
-			for(int i=0; i<clase_registros.length; i++){
-				CLogger.writeConsole("Calculando pronostico para la clase registro "+clase_registros[i]);
-				ArrayList<EgresoGasto> historicos = new ArrayList<EgresoGasto>();
-				historicos = getEgresosContables(conn, ejercicio, mes, clase_registros[i]);
+			
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
+			DateTime fin = inicio.plusMonths(numero_pronosticos);
+			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_anticipo_contable "
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and ajustado=?");
+			ps.setInt(1, ejercicio);
+			ps.setInt(2, mes);
+			ps.setInt(3, inicio.getYear());
+			ps.setInt(4, fin.getYear());
+			ps.setInt(5, fin.getYear());
+			ps.setInt(6, fin.getMonthOfYear());
+			ps.setInt(7, ajustado ? 1 : 0);
+			ps.executeUpdate();
+			ps.close();
+			ArrayList<ArrayList<EgresoGasto>> historicos = new ArrayList<ArrayList<EgresoGasto>>();
+			historicos = getEgresosContables(conn, ejercicio, mes);
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_anticipo_contable(ejercicio, mes, clase_registro, monto,modelo, error_modelo, ajustado, fecha_calculo) "
+					+ "values(?,?,?,?,?,?,?,?)");
+			for(ArrayList<EgresoGasto> clase : historicos){
+				CLogger.writeConsole("Calculando pronostico para la clase registro "+clase.get(0).getEntidad_nombre());
 				
-				int ts_año_inicio = historicos.get(0).getEjercicio();
+				
+				
+				int ts_año_inicio = clase.get(0).getEjercicio();
 				
 				//Rengine.DEBUG = 5;
 				engine.eval("suppressPackageStartupMessages(library(forecast))");
-				String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
+				String vector_aplanado = "c("+getVectorAplanado(clase)+")";
 				engine.eval("datos = " + vector_aplanado);
 				engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
 				if(ajustado){
@@ -499,22 +517,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				engine.eval("error=accuracy(fc)[5]");
 				double error_arima = engine.eval("error").asDouble();
 				
-				DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
-				DateTime fin = inicio.plusMonths(numero_pronosticos);
-				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_anticipo_contable "
-						+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and clase_registro=? and ajustado=?");
-				ps.setInt(1, ejercicio);
-				ps.setInt(2, mes);
-				ps.setInt(3, inicio.getYear());
-				ps.setInt(4, fin.getYear());
-				ps.setInt(5, fin.getYear());
-				ps.setInt(6, fin.getMonthOfYear());
-				ps.setString(7, clase_registros[i]);
-				ps.setInt(8, ajustado ? 1 : 0);
-				ps.executeUpdate();
-				ps.close();
-				ps = conn.prepareStatement("INSERT INTO minfin.mvp_anticipo_contable(ejercicio, mes, clase_registro, monto,modelo, error_modelo, ajustado, fecha_calculo) "
-						+ "values(?,?,?,?,?,?,?,?)");
+				
 				double error=0;
 				double dato;
 				for(int k=0; k<numero_pronosticos; k++) {
@@ -523,7 +526,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					DateTime tiempo = inicio.plusMonths(k);
 					ps.setInt(1, tiempo.getYear());
 					ps.setInt(2, tiempo.getMonthOfYear());
-					ps.setString(3, clase_registros[i]);
+					ps.setString(3, clase.get(0).getEntidad_nombre());
 					ps.setDouble(4, dato);
 					ps.setString(5, (error_ets<=error_arima ? "ETS" : "ARIMA"));
 					error = error_ets<=error_arima ? error_ets : error_arima;
@@ -535,10 +538,10 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					ps.setTimestamp(8, new Timestamp(DateTime.now().getMillis()));
 					ps.addBatch();
 				}
-				ps.executeBatch();
-				ps.close();
 			}
 			engine.close();
+			ps.executeBatch();
+			ps.close();
 		}
 		catch(Exception e){
 			CLogger.writeConsole("Error al calcular los pronosticos de egresos contables anticipos");
@@ -553,18 +556,18 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 		DateTime now = DateTime.now();
 		try{
 			PreparedStatement ps = conn.prepareStatement("select ejercicio, entidad,  " + 
-					"sum(case when mes = 1 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m1, " + 
-					"sum(case when mes = 2 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m2, " + 
-					"sum(case when mes = 3 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m3, " + 
-					"sum(case when mes = 4 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m4, " + 
-					"sum(case when mes = 5 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m5, " + 
-					"sum(case when mes = 6 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m6, " + 
-					"sum(case when mes = 7 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m7, " + 
-					"sum(case when mes = 8 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m8, " + 
-					"sum(case when mes = 9 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m9, " + 
-					"sum(case when mes = 10 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m10, " + 
-					"sum(case when mes = 11 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m11, " + 
-					"sum(case when mes = 12 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m12 " + 
+					"round(sum(case when mes = 1 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m1, " + 
+					"round(sum(case when mes = 2 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m2, " + 
+					"round(sum(case when mes = 3 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m3, " + 
+					"round(sum(case when mes = 4 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m4, " + 
+					"round(sum(case when mes = 5 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m5, " + 
+					"round(sum(case when mes = 6 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m6, " + 
+					"round(sum(case when mes = 7 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m7, " + 
+					"round(sum(case when mes = 8 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m8, " + 
+					"round(sum(case when mes = 9 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m9, " + 
+					"round(sum(case when mes = 10 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m10, " + 
+					"round(sum(case when mes = 11 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m11, " + 
+					"round(sum(case when mes = 12 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m12 " + 
 					"from minfin.mv_gasto_sin_regularizaciones" +
 					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " +
 					"where ejercicio between ? and ? and entidad = ? " + 
@@ -593,17 +596,37 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 			boolean fecha_devengado){
 		ArrayList<Double> ret = new ArrayList<Double>();
 		try{
-			ArrayList<Integer> entidades = getEntidadesGobiernoCentral(conn, ejercicio);
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
-			for(Integer entidad:entidades){
-				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad);
-				ArrayList<EgresoGasto> historicos = new ArrayList<EgresoGasto>();
-				historicos = getEgresosSinRegularizacionesEntidad(conn, ejercicio, mes, entidad, fecha_devengado);
-				int ts_año_inicio = historicos.get(0).getEjercicio();
+			ArrayList<ArrayList<EgresoGasto>> historicos = new ArrayList<ArrayList<EgresoGasto>>();
+			historicos = getEgresosSinRegularizacionesEntidades(conn, ejercicio, mes, fecha_devengado);
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
+			DateTime fin = inicio.plusMonths(numero_pronosticos);
+			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and unidad_ejecutora=0 "
+					+ "and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
+			ps.setInt(1, ejercicio);
+			ps.setInt(2, mes);
+			ps.setInt(3, inicio.getYear());
+			ps.setInt(4, fin.getYear());
+			ps.setInt(5, fin.getYear());
+			ps.setInt(6, fin.getMonthOfYear());
+			ps.setInt(7, ajustado ? 1 : 0);
+			ps.executeUpdate();
+			ps.close();
+			ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones" + 
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") 
+					+ "(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+					+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
+					+ "values(?,?,?,0,0,0,0,0,0,0,0,?,?,?,?,?)");
+			for(ArrayList<EgresoGasto> entidad: historicos){
+				CLogger.writeConsole("Calculando pronostico para la entidad "+entidad.get(0).getEntidad());
+				
+				int ts_año_inicio = entidad.get(0).getEjercicio();
 				
 				//Rengine.DEBUG = 5;
 				engine.eval("suppressPackageStartupMessages(library(forecast))");
-				String vector_aplanado = "c("+getVectorAplanado(historicos)+")";
+				String vector_aplanado = "c("+getVectorAplanado(entidad)+")";
 				engine.eval("datos = " + vector_aplanado);
 				engine.eval("serie = ts(datos, start=c("+ts_año_inicio+",1), frequency=12)");
 				if(ajustado){
@@ -625,27 +648,6 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				engine.eval("error=accuracy(fc)[5]");
 				double error_arima = engine.eval("error").asDouble();
 				
-				DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
-				DateTime fin = inicio.plusMonths(numero_pronosticos);
-				PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones" +
-						(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
-						+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=0 "
-						+ "and programa=0 and subprograma=0 and proyecto=0 and actividad=0 and obra=0 and fuente=0 and ajustado=?");
-				ps.setInt(1, ejercicio);
-				ps.setInt(2, mes);
-				ps.setInt(3, inicio.getYear());
-				ps.setInt(4, fin.getYear());
-				ps.setInt(5, fin.getYear());
-				ps.setInt(6, fin.getMonthOfYear());
-				ps.setInt(7, entidad);
-				ps.setInt(8, ajustado ? 1 : 0);
-				ps.executeUpdate();
-				ps.close();
-				ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones" + 
-						(fecha_devengado==false ? "_fecha_pagado_total" : "") 
-						+ "(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
-						+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
-						+ "values(?,?,?,0,0,0,0,0,0,0,0,?,?,?,?,?)");
 				double error=0;
 				int i=0;
 				for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
@@ -653,7 +655,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					DateTime tiempo = inicio.plusMonths(i);
 					ps.setInt(1, tiempo.getYear());
 					ps.setInt(2, tiempo.getMonthOfYear());
-					ps.setInt(3, entidad);
+					ps.setInt(3, entidad.get(0).getEntidad());
 					ps.setDouble(4, dato);
 					ps.setString(5, (error_ets<=error_arima ? "ETS" : "ARIMA"));
 					error = error_ets<=error_arima ? error_ets : error_arima;
@@ -666,9 +668,9 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					ps.addBatch();
 					i++;
 				}
-				ps.executeBatch();
-				ps.close();
 			}
+			ps.executeBatch();
+			ps.close();
 			engine.close();
 		}
 		catch(Exception e){
@@ -693,18 +695,18 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					+ ((obra!=null) ? "obra, " : "")
 					+ ((fuente!=null) ? "fuente, " : "")
 					+ ((renglon!=null) ? "renglon, " : "") +
-					"sum(case when mes = 1 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m1, " + 
-					"sum(case when mes = 2 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m2, " + 
-					"sum(case when mes = 3 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m3, " + 
-					"sum(case when mes = 4 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m4, " + 
-					"sum(case when mes = 5 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m5, " + 
-					"sum(case when mes = 6 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m6, " + 
-					"sum(case when mes = 7 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m7, " + 
-					"sum(case when mes = 8 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m8, " + 
-					"sum(case when mes = 9 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m9, " + 
-					"sum(case when mes = 10 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m10, " + 
-					"sum(case when mes = 11 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m11, " + 
-					"sum(case when mes = 12 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end) m12 " + 
+					"round(sum(case when mes = 1 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m1, " + 
+					"round(sum(case when mes = 2 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m2, " + 
+					"round(sum(case when mes = 3 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m3, " + 
+					"round(sum(case when mes = 4 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m4, " + 
+					"round(sum(case when mes = 5 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m5, " + 
+					"round(sum(case when mes = 6 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m6, " + 
+					"round(sum(case when mes = 7 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m7, " + 
+					"round(sum(case when mes = 8 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m8, " + 
+					"round(sum(case when mes = 9 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m9, " + 
+					"round(sum(case when mes = 10 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m10, " + 
+					"round(sum(case when mes = 11 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m11, " + 
+					"round(sum(case when mes = 12 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m12 " + 
 					"from minfin.mv_gasto_sin_regularizaciones" +
 					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " +
 					"where ejercicio between ? and ? " + 
@@ -823,6 +825,35 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 			historicos = getEgresosSinRegularizaciones(conn, ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, proyecto, actividad, obra, fuente, renglon, fecha_devengado);
 			
 			RConnection engine = new RConnection(CProperties.getRserve(), CProperties.getRservePort());
+			PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
+					+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) "
+					+ ((entidad!=null && entidad>100) ? " and entidad="+entidad : " ")  
+					+ ((unidad_ejecutora!=null && unidad_ejecutora>1) ? " and unidad_ejecutora="+unidad_ejecutora : " ")
+					+ ((programa!=null && programa>0) ? " and programa="+programa : " ")  
+					+ ((subprograma!=null && subprograma>0) ? " and subprograma="+subprograma : " ")  
+					+ ((proyecto!=null && proyecto>0) ? " and proyecto="+proyecto : " ")  
+					+ ((actividad!=null && actividad>0) ? " and actividad="+actividad : " ")  
+					+ ((obra!=null && obra>0) ? " and obra="+obra : " ")  
+					+ ((fuente!=null && fuente>0) ? " and fuente="+fuente : " ")  
+					+ ((renglon!=null && renglon>0) ? " and renglon="+renglon : " ")  
+					+ " and ajustado=?");
+			DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
+			DateTime fin = inicio.plusMonths(numero_pronosticos);
+			ps.setInt(1, ejercicio);
+			ps.setInt(2, mes);
+			ps.setInt(3, inicio.getYear());
+			ps.setInt(4, fin.getYear());
+			ps.setInt(5, fin.getYear());
+			ps.setInt(6, fin.getMonthOfYear());
+			ps.setInt(7, ajustado ? 1 : 0);
+			ps.executeUpdate();
+			PreparedStatement psi = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") 
+					+ "(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
+					+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
+					+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+			int rows=0;
 			for(ArrayList<EgresoGasto> historico : historicos){
 				CLogger.writeConsole("Calculando pronostico ejercicio = "+ejercicio+" mes = "+mes
 						+" entidad = "+(historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0)
@@ -841,6 +872,7 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 				
 				engine.eval("suppressPackageStartupMessages(library(forecast))");
 				String vector_aplanado = getVectorAplanado(historico);
+				
 				if(vector_aplanado.length()>0){
 					vector_aplanado = "c("+vector_aplanado+")";
 					engine.eval("datos = " + vector_aplanado);
@@ -864,72 +896,149 @@ public static ArrayList<Double> getPronosticosEgresosEntidades(Connection conn, 
 					engine.eval("error=accuracy(fc)[5]");
 					double error_arima = engine.eval("error").asDouble();
 					
-					DateTime inicio = new DateTime(ejercicio,mes,1,0,0,0);
-					DateTime fin = inicio.plusMonths(numero_pronosticos);
-					PreparedStatement ps=conn.prepareStatement("DELETE FROM minfin.mvp_egreso_sin_regularizaciones" +
-							(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " 
-							+ "WHERE ((ejercicio=? and mes>=?) OR (ejercicio>? and ejercicio<?) OR (ejercicio=? and mes<=?)) and entidad=? and unidad_ejecutora=? "
-							+ "and programa=? and subprograma=? and proyecto=? and actividad=? and obra=? and fuente=? and renglon=? and ajustado=?");
-					ps.setInt(1, ejercicio);
-					ps.setInt(2, mes);
-					ps.setInt(3, inicio.getYear());
-					ps.setInt(4, fin.getYear());
-					ps.setInt(5, fin.getYear());
-					ps.setInt(6, fin.getMonthOfYear());
-					ps.setInt(7, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
-					ps.setInt(8, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
-					ps.setInt(9, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
-					ps.setInt(10, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
-					ps.setInt(11, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
-					ps.setInt(12, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
-					ps.setInt(13, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
-					ps.setInt(14, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
-					ps.setInt(15, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
-					ps.setInt(16, ajustado ? 1 : 0);
-					ps.executeUpdate();
-					ps.close();
-					ps = conn.prepareStatement("INSERT INTO minfin.mvp_egreso_sin_regularizaciones" +
-							(fecha_devengado==false ? "_fecha_pagado_total" : "") 
-							+ "(ejercicio, mes, entidad, unidad_ejecutora, programa, subprograma, "
-							+ "proyecto, actividad, obra, fuente,renglon, monto,modelo, error_modelo, ajustado, fecha_calculo) "
-							+ "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 					double error=0;
 					int i=0;
 					for(double dato: (error_ets<=error_arima ? res_ets : res_arima)){
 						ret.add(dato);
 						DateTime tiempo = inicio.plusMonths(i);
-						ps.setInt(1, tiempo.getYear());
-						ps.setInt(2, tiempo.getMonthOfYear());
-						ps.setInt(3, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
-						ps.setInt(4, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
-						ps.setInt(5, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
-						ps.setInt(6, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
-						ps.setInt(7, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
-						ps.setInt(8, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
-						ps.setInt(9, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
-						ps.setInt(10, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
-						ps.setInt(11, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
-						ps.setDouble(12, dato);
-						ps.setString(13, (error_ets<=error_arima ? "ETS" : "ARIMA"));
+						psi.setInt(1, tiempo.getYear());
+						psi.setInt(2, tiempo.getMonthOfYear());
+						psi.setInt(3, historico.get(0).getEntidad()!=null ? historico.get(0).getEntidad() : 0);
+						psi.setInt(4, historico.get(0).getUnidad_ejecutora()!=null ? historico.get(0).getUnidad_ejecutora() : 0);
+						psi.setInt(5, historico.get(0).getPrograma()!=null ? historico.get(0).getPrograma() : 0);
+						psi.setInt(6, historico.get(0).getSubprograma()!=null ? historico.get(0).getSubprograma() : 0);
+						psi.setInt(7, historico.get(0).getProyecto()!=null ? historico.get(0).getProyecto() : 0);
+						psi.setInt(8, historico.get(0).getActividad()!=null ? historico.get(0).getActividad() : 0);
+						psi.setInt(9, historico.get(0).getObra()!=null ? historico.get(0).getObra() : 0);
+						psi.setInt(10, historico.get(0).getFuente()!=null ? historico.get(0).getFuente() : 0);
+						psi.setInt(11, historico.get(0).getRenglon()!=null ? historico.get(0).getRenglon() : 0);
+						psi.setDouble(12, dato);
+						psi.setString(13, (error_ets<=error_arima ? "ETS" : "ARIMA"));
 						error = error_ets<=error_arima ? error_ets : error_arima;
 						if(!Double.isNaN(error) && !Double.isInfinite(error))
-							ps.setDouble(14,  error);
+							psi.setDouble(14,  error);
 						else
-							ps.setNull(14, java.sql.Types.DECIMAL);
-						ps.setInt(15, ajustado ? 1 : 0);
-						ps.setTimestamp(16, new Timestamp(DateTime.now().getMillis()));
-						ps.addBatch();
+							psi.setNull(14, java.sql.Types.DECIMAL);
+						psi.setInt(15, ajustado ? 1 : 0);
+						psi.setTimestamp(16, new Timestamp(DateTime.now().getMillis()));
+						psi.addBatch();
 						i++;
+						rows++;
+						if(rows%10000==0)
+							psi.executeBatch();
 					}
-					ps.executeBatch();
-					ps.close();
+					
 				}
 			}
+			psi.executeBatch();
+			psi.close();
 			engine.close();
 		}
 		catch(Exception e){
 			CLogger.writeConsole("Error al calcular los pronosticos de egresos sin regularizaciones");
 			e.printStackTrace(System.out);
+		}
+		return ret;
+	}
+	
+	public static ArrayList<ArrayList<EgresoGasto>> getEgresosEntidades(Connection conn, Integer ejercicio, Integer mes, boolean fecha_devengado){
+		ArrayList<ArrayList<EgresoGasto>> ret = new ArrayList<ArrayList<EgresoGasto>>();
+		DateTime now = DateTime.now();
+		try{
+			PreparedStatement ps = conn.prepareStatement("SELECT ejercicio, entidad, "
+					+ "round(sum(m1),2) m1, "
+					+ "round(sum(m2),2) m2, "
+					+ "round(sum(m3),2) m3, "
+					+ "round(sum(m4),2) m4, "
+					+ "round(sum(m5),2) m5, "
+					+ "round(sum(m6),2) m6, "
+					+ "round(sum(m7),2) m7, "
+					+ "round(sum(m8),2) m8, "
+					+ "round(sum(m9),2) m9, "
+					+ "round(sum(m10),2) m10, "
+					+ "round(sum(m11),2) m11, "
+					+ "round(sum(m12),2) m12 "
+					+ "from minfin.mv_ejecucion_presupuestaria_mensualizada" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " "
+					+ " "
+					+ "where ejercicio between  ? and ? "
+					+ "group by entidad, ejercicio ORDER BY entidad, ejercicio");
+			ps.setInt(1, ejercicio-5);
+			ps.setInt(2, ejercicio);
+			ResultSet rs = ps.executeQuery();
+			int entidad_actual = 0;
+			ArrayList<EgresoGasto> atemp=null;
+			while(rs.next()){
+				if(entidad_actual!=rs.getInt(2)) {
+					if(atemp!=null)
+						ret.add(atemp);
+					atemp = new ArrayList<EgresoGasto>();
+					entidad_actual = rs.getInt(2);
+				}
+				ArrayList<Double> montos=new ArrayList<Double>();
+				for(int i=1; i<=12; i++){
+					if(((rs.getInt(1)==ejercicio && i<mes) || rs.getInt(1)<ejercicio) && ((rs.getInt(1)==now.getYear() && i<now.getMonthOfYear()) || rs.getInt(1)<now.getYear()))
+						montos.add(rs.getDouble(2+i));
+				}
+				EgresoGasto temp = new EgresoGasto(rs.getInt(1), rs.getInt(2), 0, 0,0,0,0,0,0,0, null, null,null,null,null,null,null,null,null, montos);
+				atemp.add(temp);
+			}
+			if(atemp!=null)
+				ret.add(atemp);
+		}
+		catch(Exception e){
+			CLogger.writeConsole("Error al calcular los pronosticos de Egresos Totales "+e.getMessage());
+		}
+		return ret;
+	}
+	
+	public static ArrayList<ArrayList<EgresoGasto>> getEgresosSinRegularizacionesEntidades(Connection conn, Integer ejercicio, Integer mes, 
+			boolean fecha_devengado){
+		ArrayList<ArrayList<EgresoGasto>> ret = new ArrayList<ArrayList<EgresoGasto>>();
+		DateTime now = DateTime.now();
+		try{
+			PreparedStatement ps = conn.prepareStatement("select ejercicio, entidad,  " + 
+					"round(sum(case when mes = 1 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m1, " + 
+					"round(sum(case when mes = 2 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m2, " + 
+					"round(sum(case when mes = 3 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m3, " + 
+					"round(sum(case when mes = 4 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m4, " + 
+					"round(sum(case when mes = 5 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m5, " + 
+					"round(sum(case when mes = 6 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m6, " + 
+					"round(sum(case when mes = 7 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m7, " + 
+					"round(sum(case when mes = 8 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m8, " + 
+					"round(sum(case when mes = 9 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m9, " + 
+					"round(sum(case when mes = 10 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m10, " + 
+					"round(sum(case when mes = 11 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m11, " + 
+					"round(sum(case when mes = 12 then (ifnull(gasto,0)-ifnull(deducciones,0)) else 0 end),2) m12 " + 
+					"from minfin.mv_gasto_sin_regularizaciones" +
+					(fecha_devengado==false ? "_fecha_pagado_total" : "") + " " +
+					"where ejercicio between ? and ? " + 
+					"group by entidad,ejercicio ORDER BY entidad,ejercicio");
+			ps.setInt(1, ejercicio-5);
+			ps.setInt(2, ejercicio);
+			ResultSet rs = ps.executeQuery();
+			ArrayList<EgresoGasto> atemp = null;
+			int entidad_actual = 0;
+			while(rs.next()){
+				if(entidad_actual!=rs.getInt(2)) {
+					if(atemp!=null)
+						ret.add(atemp);
+					atemp = new ArrayList<EgresoGasto>();
+					entidad_actual = rs.getInt(2);
+				}
+				ArrayList<Double> montos=new ArrayList<Double>();
+				for(int i=1; i<=12; i++){
+					if(((rs.getInt(1)==ejercicio && i<mes) || rs.getInt(1)<ejercicio) && ((rs.getInt(1)==now.getYear() && i<now.getMonthOfYear()) || rs.getInt(1)<now.getYear()))
+						montos.add(rs.getDouble(2+i));
+				}
+				EgresoGasto temp = new EgresoGasto(rs.getInt(1), rs.getInt(2), 0, 0,0,0,0,0,0,0, null, null,null,null,null,null,null,null,null, montos);
+				atemp.add(temp);
+			}
+			if(atemp!=null)
+				ret.add(atemp);
+		}
+		catch(Exception e){
+			CLogger.writeConsole("Error al calcular los pronosticos de Egresos Totales "+e.getMessage());
 		}
 		return ret;
 	}
